@@ -1,23 +1,20 @@
 
-using System.Runtime.Serialization.Formatters.Binary;
+using System.Numerics;
 using System.Text;
 using System.Text.Json;
 using OpenAI.GPT3.Managers;
+using OpenAI.GPT3.ObjectModels.RequestModels;
 
 public class AIService
 {
-    //  private readonly string _apiKey;
     private readonly OpenAIService _openAIService;
 
     public AIService(string apiKey)
     {
-        //  this._apiKey = apiKey;
-//this._openAIService = serviceProvider.GetRequiredService<OpenAIService>();
-      //  this._openAIService = openAIService;
-           this._openAIService = new OpenAI.GPT3.Managers.OpenAIService(new OpenAI.GPT3.OpenAiOptions()
-           {
-              ApiKey = apiKey
-          });
+        this._openAIService = new OpenAI.GPT3.Managers.OpenAIService(new OpenAI.GPT3.OpenAiOptions()
+        {
+            ApiKey = apiKey
+        });
     }
 
     private OpenAI.GPT3.ObjectModels.ResponseModels.EmbeddingCreateResponse ConvertEmbedding(byte[] embedding)
@@ -27,7 +24,7 @@ public class AIService
         return JsonSerializer.Deserialize<OpenAI.GPT3.ObjectModels.ResponseModels.EmbeddingCreateResponse>(responseJson);
     }
 
-    public async Task<List<double>> CompareEmbeddings(byte[] query, List<byte[]> embeddings)
+    public List<double> CompareEmbeddings(byte[] query, List<byte[]> embeddings)
     {
         var queryEmbedding = ConvertEmbedding(query);
         var queryEmbeddingVector = queryEmbedding.Data.FirstOrDefault().Embedding.ToArray();
@@ -40,12 +37,13 @@ public class AIService
         return mergeEmbeddings;
     }
 
-    public async Task<byte[]> CalculateEmbeddings(List<string> items)
+    public async Task<byte[]> CalculateEmbeddingAsync(object input)
     {
         var embeddingResult = await this._openAIService.Embeddings.CreateEmbedding(
             new OpenAI.GPT3.ObjectModels.RequestModels.EmbeddingCreateRequest()
             {
-                InputAsList = items,
+                Input = input is string ? input as string : null,
+                InputAsList = input is List<string> ? input as List<string> : null,
                 Model = OpenAI.GPT3.ObjectModels.Models.TextEmbeddingAdaV2
             });
 
@@ -54,72 +52,37 @@ public class AIService
             throw new Exception(embeddingResult.Error.Message);
         }
 
-        byte[] serializedEmbeddingResult;
-
-        try
-        {
-            serializedEmbeddingResult = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(embeddingResult));
-        }
-        catch (Exception ex)
-        {
-            throw new Exception("Failed to serialize embedding result.", ex);
-        }
-
-        return serializedEmbeddingResult;
-    }
-    public async Task<byte[]> CalculateEmbedding(string item)
-    {
-        var embeddingResult = await this._openAIService.Embeddings.CreateEmbedding(
-            new OpenAI.GPT3.ObjectModels.RequestModels.EmbeddingCreateRequest()
-            {
-                Input = item,
-                Model = OpenAI.GPT3.ObjectModels.Models.TextEmbeddingAdaV2
-            });
-
-        if (!embeddingResult.Successful)
-        {
-            throw new Exception(embeddingResult.Error.Message);
-        }
-
-        byte[] serializedEmbeddingResult;
-
-        try
-        {
-            serializedEmbeddingResult = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(embeddingResult));
-        }
-        catch (Exception ex)
-        {
-            throw new Exception("Failed to serialize embedding result.", ex);
-        }
-
-        return serializedEmbeddingResult;
+        return Encoding.UTF8.GetBytes(JsonSerializer.Serialize(embeddingResult));
     }
 
-    public async Task<string> ChatWithContext(string context, List<OpenAI.GPT3.ObjectModels.RequestModels.ChatMessage> messages)
+    public async Task<string> ChatWithContextAsync(string context, IEnumerable<ChatMessage> messages)
     {
-        var messageHistory = new List<OpenAI.GPT3.ObjectModels.RequestModels.ChatMessage>()
-        {
-            new OpenAI.GPT3.ObjectModels.RequestModels.ChatMessage("system", context)
-        };
+        var messageHistory = new List<ChatMessage>
+    {
+        new ChatMessage("system", context)
+    };
 
         messageHistory.AddRange(messages);
 
-        var response = await this._openAIService.ChatCompletion.CreateCompletion(
-           new OpenAI.GPT3.ObjectModels.RequestModels.ChatCompletionCreateRequest()
-           {
-               Model = "gpt-3.5-turbo",
-               Temperature = (float)1,
-               Messages = messageHistory
+        var chatCompletionRequest = new ChatCompletionCreateRequest
+        {
+            Model = "gpt-3.5-turbo",
+            Temperature = 1.0f,
+            Messages = messageHistory
+        };
 
-           });
+        var response = await _openAIService.ChatCompletion.CreateCompletion(chatCompletionRequest)
+                                        .ConfigureAwait(false);
 
         if (!response.Successful)
         {
-            if (response.Error.Code == "context_length_exceeded")
+            switch (response.Error.Code)
             {
-                throw new FormatException(response.Error.Message);
+                case "context_length_exceeded":
+                    throw new FormatException(response.Error.Message);
+                default:
+                    throw new Exception(response.Error.Message);
             }
-            throw new Exception(response.Error.Message);
         }
 
         return response.Choices.FirstOrDefault()?.Message.Content;
@@ -136,7 +99,21 @@ public class AIService
         double norm1 = 0;
         double norm2 = 0;
 
-        for (int i = 0; i < vector1.Length; i++)
+        int i = 0;
+        int length = Vector<double>.Count;
+
+        // Compute dot product, norm1, and norm2 using SIMD instructions
+        for (; i <= vector1.Length - length; i += length)
+        {
+            var vec1 = new Vector<double>(vector1, i);
+            var vec2 = new Vector<double>(vector2, i);
+            dotProduct += Vector.Dot(vec1, vec2);
+            norm1 += Vector.Dot(vec1, vec1);
+            norm2 += Vector.Dot(vec2, vec2);
+        }
+
+        // Compute the remaining elements using scalar operations
+        for (; i < vector1.Length; i++)
         {
             dotProduct += vector1[i] * vector2[i];
             norm1 += vector1[i] * vector1[i];

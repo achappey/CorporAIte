@@ -1,3 +1,4 @@
+using CorporAIte.Models;
 using Microsoft.AspNetCore.Mvc;
 
 namespace CorporAIte.Controllers;
@@ -5,7 +6,7 @@ namespace CorporAIte.Controllers;
 [ApiController]
 [Route("[controller]")]
 public class ContextChatController : ControllerBase
-{  
+{
 
     private readonly ILogger<ContextChatController> _logger;
     private readonly CorporAIteService _corporAiteService;
@@ -17,8 +18,8 @@ public class ContextChatController : ControllerBase
     }
 
     [HttpPost(Name = "ContextChat")]
-    public async Task<IActionResult> ContextChat(string siteUrl, string folderPath, string fileName, 
-    [FromBody] OpenAI.GPT3.ObjectModels.RequestModels.ChatMessage[] messages, string contextQuery = "")
+    public async Task<IActionResult> ContextChat(string siteUrl, string folderPath, string fileName,
+    [FromBody] Chat chat)
     {
         try
         {
@@ -37,13 +38,13 @@ public class ContextChatController : ControllerBase
                 return BadRequest("The file name is required.");
             }
 
-            var result = await this._corporAiteService.ChatWithData(siteUrl, folderPath, fileName, messages.ToList(), contextQuery);
+            var result = await this._corporAiteService.ChatWithDataAsync(siteUrl, folderPath, fileName, chat);
 
             return Ok(result);
         }
         catch (Exception ex)
         {
-            // Log the error here, or rethrow it if you want to let it propagate up the call stack
+             this._logger.LogError(ex, "An error occurred while processing the chat request.");
 
             return StatusCode(StatusCodes.Status500InternalServerError, "An error occurred while creating embeddings.");
         }

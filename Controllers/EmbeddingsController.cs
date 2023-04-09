@@ -6,12 +6,8 @@ namespace CorporAIte.Controllers;
 [Route("[controller]")]
 public class EmbeddingsController : ControllerBase
 {
-    private static readonly string[] Summaries = new[]
-    {
-        "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
-    };
-
     private readonly ILogger<EmbeddingsController> _logger;
+    
     private readonly CorporAIteService _corporAiteService;
 
     public EmbeddingsController(ILogger<EmbeddingsController> logger, CorporAIteService corporAiteService)
@@ -40,7 +36,7 @@ public class EmbeddingsController : ControllerBase
                 return BadRequest("The file name is required.");
             }
 
-            await this._corporAiteService.CalculateEmbeddings(siteUrl, folderPath, fileName);
+            await this._corporAiteService.CalculateEmbeddingsAsync(siteUrl, folderPath, fileName);
 
             return Ok("Embeddings created successfully.");
         }

@@ -57,7 +57,7 @@ public class SharePointService
         return authManager.GetACSAppOnlyContext(this.ToTenantUrl(url), this._clientId, this._clientSecret);
     }
 
-    public async Task<byte[]> DownloadFileFromSharePoint(string siteUrl, string filePath)
+    public async Task<byte[]> DownloadFileFromSharePointAsync(string siteUrl, string filePath)
     {
         var cacheKey = siteUrl + filePath;
 
@@ -120,47 +120,7 @@ public class SharePointService
             return fileBytes;
         }
     }
-    /*
-        public async Task<byte[]> DownloadFileFromSharePoint(string siteUrl, string filePath)
-        {
-            var cacheKey = siteUrl + filePath;
-
-            if (_cache.ContainsKey(cacheKey))
-            {
-                return _cache.GetValueOrDefault(cacheKey);
-            }
-
-            // Create a client context object for the SharePoint site
-            using (var context = GetContext(siteUrl))
-            {
-                // Get the file object from SharePoint by path
-                var file = context.Web.GetFileByServerRelativeUrl(filePath);
-
-                // Load the file object
-                context.Load(file);
-
-                // Execute the query to load the file object
-                await context.ExecuteQueryRetryAsync();
-
-                // Download the file from SharePoint and convert it to a byte array
-                byte[] fileBytes;
-
-                var fileStream = file.OpenBinaryStream();
-
-                await context.ExecuteQueryRetryAsync();
-
-                using (var memoryStream = new MemoryStream())
-                {
-                    await fileStream.Value.CopyToAsync(memoryStream);
-                    fileBytes = memoryStream.ToArray();
-                }
-
-                _cache.Add(cacheKey, fileBytes);
-
-                return fileBytes;
-            }
-        }*/
-
+   
     public async Task<List<byte[]>> GetFilesByExtensionFromFolder(string siteUrl, string folderUrl, string extension, string startsWith = "")
     {
         List<byte[]> byteArrays = new List<byte[]>();
@@ -194,9 +154,7 @@ public class SharePointService
     }
 
 
-
-
-    public async Task UploadFileToSharePoint(byte[] fileBytes, string siteUrl, string folderUrl, string fileName)
+    public async Task UploadFileToSharePointAsync(byte[] fileBytes, string siteUrl, string folderUrl, string fileName)
     {
 
         int blockSize = 5000000;

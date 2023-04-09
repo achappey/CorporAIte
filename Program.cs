@@ -1,5 +1,6 @@
+using AutoMapper;
 using CorporAIte;
-using OpenAI.GPT3.Extensions;
+using CorporAIte.Profiles;
 
 var builder = WebApplication.CreateBuilder(args);
 var appConfig = builder.Configuration.Get<AppConfig>();
@@ -8,6 +9,14 @@ var appConfig = builder.Configuration.Get<AppConfig>();
 builder.Services.AddSingleton<CorporAIteService>();
 builder.Services.AddSingleton<AIService>(a => new AIService(appConfig.OpenAI));
 builder.Services.AddSingleton<SharePointService>(y => new SharePointService(appConfig.SharePoint.TenantName, appConfig.SharePoint.ClientId, appConfig.SharePoint.ClientSecret));
+
+var mapperConfig = new MapperConfiguration(mc =>
+{
+    mc.AddProfile(new ChatProfile());
+});
+
+IMapper mapper = mapperConfig.CreateMapper();
+builder.Services.AddSingleton(mapper);
 
 builder.Services.AddControllers();
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
