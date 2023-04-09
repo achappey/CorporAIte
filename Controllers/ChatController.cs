@@ -19,6 +19,7 @@ public class ChatController : ControllerBase
 
 
     [HttpPost(Name = "Chat")]
+    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(ChatMessage))]
     public async Task<IActionResult> Chat([FromBody] Chat chat)
     {
         if (chat == null || !chat.ChatHistory.Any())

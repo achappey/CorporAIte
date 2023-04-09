@@ -61,7 +61,7 @@ public class CorporAIteService
         }
     }
 
-    public async Task<string> ChatWithDataAsync(string siteUrl, string folderPath, string fileName, Chat chat)
+    public async Task<ChatMessage> ChatWithDataAsync(string siteUrl, string folderPath, string fileName, Chat chat)
     {
         var files = await this._sharePointService.GetFilesByExtensionFromFolder(siteUrl, folderPath, ".ai", Path.GetFileNameWithoutExtension(fileName));
 
@@ -86,7 +86,7 @@ public class CorporAIteService
                 var chatResponse = await _openAIService.ChatWithContextAsync(chat.System + contextquery,
                   chat.ChatHistory.Select(a => this._mapper.Map<OpenAI.GPT3.ObjectModels.RequestModels.ChatMessage>(a)));
 
-                return chatResponse;
+                return this._mapper.Map<ChatMessage>(chatResponse);
             }
             catch (FormatException ex)
             {
@@ -107,14 +107,13 @@ public class CorporAIteService
         throw new Exception("Failed to chat with context.");
     }
 
-    public async Task<string> ChatAsync(Chat chat)
+    public async Task<ChatMessage> ChatAsync(Chat chat)
     {
         var chatResponse = await _openAIService.ChatWithContextAsync(chat.System,
                 chat.ChatHistory.Select(a => this._mapper.Map<OpenAI.GPT3.ObjectModels.RequestModels.ChatMessage>(a)));
 
-        return chatResponse;
+        return this._mapper.Map<ChatMessage>(chatResponse);
     }
-
 
     private static List<string> ConvertCsvToList(byte[] csvBytes)
     {

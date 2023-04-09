@@ -18,6 +18,7 @@ public class ContextChatController : ControllerBase
     }
 
     [HttpPost(Name = "ContextChat")]
+    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(ChatMessage))]
     public async Task<IActionResult> ContextChat([FromQuery] string siteUrl, 
     [FromQuery] string folderPath, 
     [FromQuery] string fileName,

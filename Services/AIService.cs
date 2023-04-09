@@ -55,7 +55,7 @@ public class AIService
         return Encoding.UTF8.GetBytes(JsonSerializer.Serialize(embeddingResult));
     }
 
-    public async Task<string> ChatWithContextAsync(string context, IEnumerable<ChatMessage> messages)
+    public async Task<ChatMessage> ChatWithContextAsync(string context, IEnumerable<ChatMessage> messages)
     {
         var messageHistory = new List<ChatMessage>
     {
@@ -85,7 +85,7 @@ public class AIService
             }
         }
 
-        return response.Choices.FirstOrDefault()?.Message.Content;
+        return response.Choices.FirstOrDefault()?.Message;
     }
 
     private static double CalculateCosineSimilarity(double[] vector1, double[] vector2)
