@@ -17,7 +17,9 @@ public class EmbeddingsController : ControllerBase
     }
 
     [HttpGet(Name = "CreateEmbeddings")]
-    public async Task<IActionResult> CreateEmbeddings(string siteUrl, string folderPath, string fileName)
+    public async Task<IActionResult> CreateEmbeddings([FromQuery] string siteUrl, 
+    [FromQuery] string folderPath, 
+    [FromQuery] string fileName)
     {
         try
         {
