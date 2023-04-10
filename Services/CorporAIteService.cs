@@ -63,7 +63,7 @@ public class CorporAIteService
 
     public async Task<ChatMessage> ChatWithDataAsync(string siteUrl, string folderPath, string fileName, Chat chat)
     {
-        var files = await this._sharePointService.GetFilesByExtensionFromFolder(siteUrl, folderPath, ".ai", Path.GetFileNameWithoutExtension(fileName));
+        var files = await this._sharePointService.GetFilesByExtensionFromFolder(siteUrl, folderPath, "ai", Path.GetFileNameWithoutExtension(fileName));
 
         var queryEmbedding = await this._openAIService.CalculateEmbeddingAsync(chat.ChatHistory.Where(t => t.Role == "user").Last().Content);
 

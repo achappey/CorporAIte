@@ -1,6 +1,4 @@
 
-//using Microsoft.Extensions.Caching.Memory;
-using Microsoft.Extensions.Caching.Memory;
 using Microsoft.SharePoint.Client;
 using PnP.Framework;
 
@@ -11,19 +9,17 @@ public class SharePointService
     private readonly string _clientSecret;
     private static Dictionary<string, (byte[], DateTime)> _cache = new Dictionary<string, (byte[], DateTime)>();
     private static readonly int MAX_CACHE_SIZE = 1000;
-    private static readonly TimeSpan CACHE_EXPIRATION_TIME = TimeSpan.FromHours(1);
+    private static readonly TimeSpan CACHE_EXPIRATION_TIME = TimeSpan.FromDays(1);
     private static readonly object _cacheLock = new object();
 
-    private readonly IMemoryCache _vectorCache;
+    private static Dictionary<string, (List<byte[]>, DateTime)> _vectorCache = new Dictionary<string, (List<byte[]>, DateTime)>();
+    private static readonly object _verctorCacheLock = new object();
 
-    private static readonly TimeSpan CacheDuration = TimeSpan.FromHours(1);
-    
-    public SharePointService(string tenantName, string clientId, string clientSecret, IMemoryCache cache)
+    public SharePointService(string tenantName, string clientId, string clientSecret)
     {
         this._tenantName = tenantName;
         this._clientId = clientId;
         this._clientSecret = clientSecret;
-        _vectorCache = cache;
     }
 
     private string BaseUrl
@@ -127,13 +123,27 @@ public class SharePointService
             return fileBytes;
         }
     }
-   
+
     public async Task<List<byte[]>> GetFilesByExtensionFromFolder(string siteUrl, string folderUrl, string extension, string startsWith = "")
     {
         string cacheKey = $"GetFilesByExtensionFromFolder:{siteUrl}:{folderUrl}:{extension}:{startsWith}";
-        if (_vectorCache.TryGetValue(cacheKey, out List<byte[]> cachedByteArrays))
+
+        (List<byte[]>, DateTime) cachedValue;
+        lock (_verctorCacheLock)
         {
-            return cachedByteArrays;
+            if (_vectorCache.TryGetValue(cacheKey, out cachedValue))
+            {
+                if (DateTime.UtcNow - cachedValue.Item2 < CACHE_EXPIRATION_TIME)
+                {
+                    // Item found in cache and is not expired, return it
+                    return cachedValue.Item1;
+                }
+                else
+                {
+                    // Item found in cache but has expired, remove it
+                    _cache.Remove(cacheKey);
+                }
+            }
         }
 
         List<byte[]> byteArrays = new List<byte[]>();
@@ -142,15 +152,37 @@ public class SharePointService
         {
             var web = clientContext.Web;
             var folder = web.GetFolderByServerRelativeUrl(folderUrl);
-            var files = folder.Files;
 
-            clientContext.Load(files);
+            var list = web.Lists.GetByTitle("Documents");
+
+            var camlQuery = new CamlQuery
+            {
+                ViewXml = $@"<View Scope='RecursiveAll'>
+                        <Query>
+                            <Where>
+                                <And>
+                                <BeginsWith>
+                                        <FieldRef Name='FileLeafRef'/>
+                                        <Value Type='File'>{startsWith}</Value>
+                                    </BeginsWith>
+                                    <Eq>
+                                        <FieldRef Name='File_x0020_Type'/>
+                                        <Value Type='Text'>{extension}</Value>
+                                    </Eq>
+                                </And>
+                            </Where>
+                        </Query>
+                     </View>",
+                FolderServerRelativeUrl = folderUrl
+            };
+
+            var filteredFiles = list.GetItems(camlQuery);
+            clientContext.Load(filteredFiles, items => items.Include(item => item.File));
             await clientContext.ExecuteQueryRetryAsync();
 
-            var filteredFiles = files.Where(file => file.Name.EndsWith(extension) && file.Name.StartsWith(startsWith)).ToList();
-
-            foreach (var file in filteredFiles)
+            foreach (var item in filteredFiles)
             {
+                var file = item.File;
                 var fileStream = file.OpenBinaryStream();
                 await clientContext.ExecuteQueryRetryAsync();
 
@@ -162,43 +194,21 @@ public class SharePointService
             }
         }
 
-        _vectorCache.Set(cacheKey, byteArrays, CacheDuration);
-
-        return byteArrays;
-    }
-   
-    public async Task<List<byte[]>> GetFilesByExtensionFromFolder2(string siteUrl, string folderUrl, string extension, string startsWith = "")
-    {
-        List<byte[]> byteArrays = new List<byte[]>();
-
-        using (var clientContext = GetContext(siteUrl))
+        // Add the file bytes to the cache
+        lock (_verctorCacheLock)
         {
-            var web = clientContext.Web;
-            var folder = web.GetFolderByServerRelativeUrl(folderUrl);
-            var files = folder.Files;
-
-            clientContext.Load(files);
-            await clientContext.ExecuteQueryRetryAsync();
-
-            foreach (var file in files)
+            if (_vectorCache.Count >= MAX_CACHE_SIZE)
             {
-                if (file.Name.EndsWith(extension) && file.Name.StartsWith(startsWith))
-                {
-                    var fileStream = file.OpenBinaryStream();
-                    await clientContext.ExecuteQueryRetryAsync();
-
-                    using (var memoryStream = new MemoryStream())
-                    {
-                        fileStream.Value.CopyTo(memoryStream);
-                        byteArrays.Add(memoryStream.ToArray());
-                    }
-                }
+                // Cache is full, remove the least recently used item
+                var lruItem = _cache.OrderBy(x => x.Value.Item2).First();
+                _cache.Remove(lruItem.Key);
             }
+
+            _vectorCache[cacheKey] = (byteArrays, DateTime.UtcNow);
         }
 
         return byteArrays;
     }
-
 
     public async Task UploadFileToSharePointAsync(byte[] fileBytes, string siteUrl, string folderUrl, string fileName)
     {

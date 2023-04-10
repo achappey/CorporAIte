@@ -8,9 +8,8 @@ var appConfig = builder.Configuration.Get<AppConfig>();
 
 // Add services to the container.
 builder.Services.AddSingleton<CorporAIteService>();
-builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<AIService>(a => new AIService(appConfig.OpenAI));
-builder.Services.AddSingleton<SharePointService>(y => new SharePointService(appConfig.SharePoint.TenantName, appConfig.SharePoint.ClientId, appConfig.SharePoint.ClientSecret, y.GetService<IMemoryCache>()));
+builder.Services.AddSingleton<SharePointService>(y => new SharePointService(appConfig.SharePoint.TenantName, appConfig.SharePoint.ClientId, appConfig.SharePoint.ClientSecret));
 
 var mapperConfig = new MapperConfiguration(mc =>
 {
