@@ -74,7 +74,7 @@ public class CorporAIteService
         var topResults = lines
                     .Select((l, i) => new { Text = l, Score = vectors.ElementAt(i) })
                     .OrderByDescending(r => r.Score)
-                    .Take(100)
+                    .Take(75)
                     .ToList();
 
         var contextquery = string.Join(" ", topResults.Select(a => a.Text));

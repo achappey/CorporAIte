@@ -1,14 +1,16 @@
 using AutoMapper;
 using CorporAIte;
 using CorporAIte.Profiles;
+using Microsoft.Extensions.Caching.Memory;
 
 var builder = WebApplication.CreateBuilder(args);
 var appConfig = builder.Configuration.Get<AppConfig>();
 
 // Add services to the container.
 builder.Services.AddSingleton<CorporAIteService>();
+builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<AIService>(a => new AIService(appConfig.OpenAI));
-builder.Services.AddSingleton<SharePointService>(y => new SharePointService(appConfig.SharePoint.TenantName, appConfig.SharePoint.ClientId, appConfig.SharePoint.ClientSecret));
+builder.Services.AddSingleton<SharePointService>(y => new SharePointService(appConfig.SharePoint.TenantName, appConfig.SharePoint.ClientId, appConfig.SharePoint.ClientSecret, y.GetService<IMemoryCache>()));
 
 var mapperConfig = new MapperConfiguration(mc =>
 {

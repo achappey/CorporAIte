@@ -1,4 +1,6 @@
 
+//using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.SharePoint.Client;
 using PnP.Framework;
 
@@ -12,11 +14,16 @@ public class SharePointService
     private static readonly TimeSpan CACHE_EXPIRATION_TIME = TimeSpan.FromHours(1);
     private static readonly object _cacheLock = new object();
 
-    public SharePointService(string tenantName, string clientId, string clientSecret)
+    private readonly IMemoryCache _vectorCache;
+
+    private static readonly TimeSpan CacheDuration = TimeSpan.FromHours(1);
+    
+    public SharePointService(string tenantName, string clientId, string clientSecret, IMemoryCache cache)
     {
         this._tenantName = tenantName;
         this._clientId = clientId;
         this._clientSecret = clientSecret;
+        _vectorCache = cache;
     }
 
     private string BaseUrl
@@ -122,6 +129,45 @@ public class SharePointService
     }
    
     public async Task<List<byte[]>> GetFilesByExtensionFromFolder(string siteUrl, string folderUrl, string extension, string startsWith = "")
+    {
+        string cacheKey = $"GetFilesByExtensionFromFolder:{siteUrl}:{folderUrl}:{extension}:{startsWith}";
+        if (_vectorCache.TryGetValue(cacheKey, out List<byte[]> cachedByteArrays))
+        {
+            return cachedByteArrays;
+        }
+
+        List<byte[]> byteArrays = new List<byte[]>();
+
+        using (var clientContext = GetContext(siteUrl))
+        {
+            var web = clientContext.Web;
+            var folder = web.GetFolderByServerRelativeUrl(folderUrl);
+            var files = folder.Files;
+
+            clientContext.Load(files);
+            await clientContext.ExecuteQueryRetryAsync();
+
+            var filteredFiles = files.Where(file => file.Name.EndsWith(extension) && file.Name.StartsWith(startsWith)).ToList();
+
+            foreach (var file in filteredFiles)
+            {
+                var fileStream = file.OpenBinaryStream();
+                await clientContext.ExecuteQueryRetryAsync();
+
+                using (var memoryStream = new MemoryStream())
+                {
+                    fileStream.Value.CopyTo(memoryStream);
+                    byteArrays.Add(memoryStream.ToArray());
+                }
+            }
+        }
+
+        _vectorCache.Set(cacheKey, byteArrays, CacheDuration);
+
+        return byteArrays;
+    }
+   
+    public async Task<List<byte[]>> GetFilesByExtensionFromFolder2(string siteUrl, string folderUrl, string extension, string startsWith = "")
     {
         List<byte[]> byteArrays = new List<byte[]>();
 
