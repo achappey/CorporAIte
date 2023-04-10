@@ -55,7 +55,7 @@ public class AIService
         return Encoding.UTF8.GetBytes(JsonSerializer.Serialize(embeddingResult));
     }
 
-    public async Task<ChatMessage> ChatWithContextAsync(string context, IEnumerable<ChatMessage> messages)
+    public async Task<ChatMessage> ChatWithContextAsync(string context, float temperature, IEnumerable<ChatMessage> messages)
     {
         var messageHistory = new List<ChatMessage>
     {
@@ -67,7 +67,7 @@ public class AIService
         var chatCompletionRequest = new ChatCompletionCreateRequest
         {
             Model = "gpt-3.5-turbo",
-            Temperature = 1.0f,
+            Temperature = temperature,
             Messages = messageHistory
         };
 

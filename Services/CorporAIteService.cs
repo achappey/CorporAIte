@@ -84,6 +84,7 @@ public class CorporAIteService
             try
             {
                 var chatResponse = await _openAIService.ChatWithContextAsync(chat.System + contextquery,
+                  chat.Temperature,
                   chat.ChatHistory.Select(a => this._mapper.Map<OpenAI.GPT3.ObjectModels.RequestModels.ChatMessage>(a)));
 
                 return this._mapper.Map<ChatMessage>(chatResponse);
@@ -110,6 +111,7 @@ public class CorporAIteService
     public async Task<ChatMessage> ChatAsync(Chat chat)
     {
         var chatResponse = await _openAIService.ChatWithContextAsync(chat.System,
+                chat.Temperature,
                 chat.ChatHistory.Select(a => this._mapper.Map<OpenAI.GPT3.ObjectModels.RequestModels.ChatMessage>(a)));
 
         return this._mapper.Map<ChatMessage>(chatResponse);

@@ -5,6 +5,8 @@ namespace CorporAIte.Models
     {
         public string System { get; set; }
 
+        public float Temperature { get; set; }
+
         public List<ChatMessage> ChatHistory { get; set; }
 
         public Chat()
