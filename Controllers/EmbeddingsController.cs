@@ -44,9 +44,9 @@ public class EmbeddingsController : ControllerBase
         }
         catch (Exception ex)
         {
-            // Log the error here, or rethrow it if you want to let it propagate up the call stack
+             this._logger.LogError(ex, ex.Message);
 
-            return StatusCode(StatusCodes.Status500InternalServerError, "An error occurred while creating embeddings.");
+            return StatusCode(StatusCodes.Status500InternalServerError, ex.Message);
         }
     }
 

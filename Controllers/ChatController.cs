@@ -34,9 +34,9 @@ public class ChatController : ControllerBase
         }
         catch (Exception ex)
         {
-            this._logger.LogError(ex, "An error occurred while processing the chat request.");
+            this._logger.LogError(ex, ex.Message);
 
-            return StatusCode(StatusCodes.Status500InternalServerError, "An error occurred while processing the chat request.");
+            return StatusCode(StatusCodes.Status500InternalServerError, ex.Message);
         }
     }
 
