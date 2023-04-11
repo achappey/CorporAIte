@@ -213,7 +213,7 @@ public class SharePointService
     public async Task UploadFileToSharePointAsync(byte[] fileBytes, string siteUrl, string folderUrl, string fileName)
     {
 
-        int blockSize = 5000000;
+        int blockSize = 2097152;
 
         // Create a client context object for the SharePoint site
         using (var context = GetContext(siteUrl))
@@ -221,78 +221,96 @@ public class SharePointService
             // Get the folder object in which to upload the file
             var folder = context.Web.GetFolderByServerRelativeUrl(folderUrl);
 
-            byte[] buffer = new byte[blockSize];
-            long fileoffset = 0;
-            long totalBytesRead = 0;
-            int bytesRead;
-            byte[] lastBuffer = null;
-            bool first = true;
-            bool last = false;
-            Microsoft.SharePoint.Client.File uploadFile = null;
-            Guid uploadId = Guid.NewGuid();
-
-            using (MemoryStream stream = new MemoryStream(fileBytes))
+            if (fileBytes.Length < 2097152)
             {
-                // Create a new file object and set its properties
-                while ((bytesRead = stream.Read(buffer, 0, buffer.Length)) > 0)
+                FileCreationInformation fileInfo = new FileCreationInformation
                 {
-                    totalBytesRead = totalBytesRead + bytesRead;
+                    Content = fileBytes,
+                    Url = fileName,
+                    Overwrite = true
+                };
 
-                    if (first)
+                folder.Files.Add(fileInfo);
+
+                await context.ExecuteQueryRetryAsync();
+            }
+            else
+            {
+
+                byte[] buffer = new byte[blockSize];
+                long fileoffset = 0;
+                long totalBytesRead = 0;
+                int bytesRead;
+                byte[] lastBuffer = null;
+                bool first = true;
+                bool last = false;
+                Microsoft.SharePoint.Client.File uploadFile = null;
+                Guid uploadId = Guid.NewGuid();
+
+                using (MemoryStream stream = new MemoryStream(fileBytes))
+                {
+                    // Create a new file object and set its properties
+                    while ((bytesRead = stream.Read(buffer, 0, buffer.Length)) > 0)
                     {
-                        using (MemoryStream contentStream = new MemoryStream())
-                        {
-                            // Add an empty file.
-                            FileCreationInformation fileInfo = new FileCreationInformation();
-                            fileInfo.ContentStream = contentStream;
-                            fileInfo.Url = fileName;
-                            fileInfo.Overwrite = true;
-                            uploadFile = folder.Files.Add(fileInfo);
+                        totalBytesRead = totalBytesRead + bytesRead;
 
-                            // Start upload by uploading the first slice.
+                        if (first)
+                        {
+                            using (MemoryStream contentStream = new MemoryStream())
+                            {
+                                // Add an empty file.
+                                FileCreationInformation fileInfo = new FileCreationInformation();
+                                fileInfo.ContentStream = contentStream;
+                                fileInfo.Url = fileName;
+                                fileInfo.Overwrite = true;
+                                uploadFile = folder.Files.Add(fileInfo);
+
+                                // Start upload by uploading the first slice.
+                                using (MemoryStream s = new MemoryStream(buffer))
+                                {
+                                    // Call the start upload method on the first slice
+                                    var bytesUploaded = uploadFile.StartUpload(uploadId, s);
+                                    await context.ExecuteQueryRetryAsync();
+                                    // fileoffset is the pointer where the next slice will be added
+                                    fileoffset = bytesUploaded.Value;
+                                }
+
+                                // we can only start the upload once
+                                first = false;
+                            }
+                        }
+                        else
+                        {
+                            uploadFile = context.Web.GetFileByServerRelativeUrl(folderUrl + System.IO.Path.AltDirectorySeparatorChar + fileName);
+
                             using (MemoryStream s = new MemoryStream(buffer))
                             {
-                                // Call the start upload method on the first slice
-                                var bytesUploaded = uploadFile.StartUpload(uploadId, s);
-                                await context.ExecuteQueryRetryAsync();
-                                // fileoffset is the pointer where the next slice will be added
-                                fileoffset = bytesUploaded.Value;
-                            }
 
-                            // we can only start the upload once
-                            first = false;
+                                if (totalBytesRead == fileBytes.Length)
+                                {
+                                    last = true;
+                                    lastBuffer = new byte[bytesRead];
+                                    Array.Copy(buffer, 0, lastBuffer, 0, bytesRead);
+                                }
+
+                                if (last)
+                                {
+                                    uploadFile = uploadFile.FinishUpload(uploadId, fileoffset, new MemoryStream(lastBuffer));
+                                    await context.ExecuteQueryRetryAsync();
+
+                                    return;
+                                }
+                                else
+                                {
+                                    var bytesUploaded = uploadFile.ContinueUpload(uploadId, fileoffset, s);
+                                    await context.ExecuteQueryRetryAsync();
+                                    fileoffset = bytesUploaded.Value;
+                                }
+
+
+                            }
                         }
-                    }
-                    else
-                    {
-                        uploadFile = context.Web.GetFileByServerRelativeUrl(folderUrl + System.IO.Path.AltDirectorySeparatorChar + fileName);
 
-                        using (MemoryStream s = new MemoryStream(buffer))
-                        {
-
-                            if (totalBytesRead == fileBytes.Length)
-                            {
-                                last = true;
-                                lastBuffer = new byte[bytesRead];
-                                Array.Copy(buffer, 0, lastBuffer, 0, bytesRead);
-                            }
-
-                            if (last)
-                            {
-                                uploadFile = uploadFile.FinishUpload(uploadId, fileoffset, new MemoryStream(lastBuffer));
-                                await context.ExecuteQueryRetryAsync();
-
-                                return;
-                            }
-                            else
-                            {
-                                var bytesUploaded = uploadFile.ContinueUpload(uploadId, fileoffset, s);
-                                await context.ExecuteQueryRetryAsync();
-                                fileoffset = bytesUploaded.Value;
-                            }
-
-
-                        }
                     }
                 }
             }
