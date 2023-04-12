@@ -13,7 +13,7 @@ namespace CorporAIte.Models
 
         public string? FolderUrl { get; set; }
 
-        public List<int> ItemIds { get; set; }
+        public List<int>? ItemIds { get; set; }
 
         public Chat()
         {
