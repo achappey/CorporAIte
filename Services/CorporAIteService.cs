@@ -214,10 +214,10 @@ public class CorporAIteService
     public async Task<ChatMessage> ChatAsync(Chat chat)
     {
         // Check if there are any item IDs in the chat
-        if (chat.ItemIds.Any())
+        if (false)
         {
             // Chat with data list using item IDs
-            return await ChatWithDataListAsync(chat.SiteUrl, chat.FolderUrl, chat.ItemIds, chat);
+          //  return await ChatWithDataListAsync(chat.SiteUrl, chat.FolderUrl, chat.ItemIds, chat);
         }
         else
         {

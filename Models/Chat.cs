@@ -9,11 +9,11 @@ namespace CorporAIte.Models
 
         public List<ChatMessage> ChatHistory { get; set; }
 
-        public string? SiteUrl { get; set; }
+    //    public string? SiteUrl { get; set; }
 
-        public string? FolderUrl { get; set; }
+  //      public string? FolderUrl { get; set; }
 
-        public List<int>? ItemIds { get; set; }
+//        public List<int>? ItemIds { get; set; }
 
         public Chat()
         {
