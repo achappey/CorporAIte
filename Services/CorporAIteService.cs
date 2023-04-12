@@ -121,6 +121,50 @@ public class CorporAIteService
         return await ChatWithBestContext(topResults.Select(r => (dynamic)r).ToList(), chat);
     }
 
+    private async Task<List<byte[]>> GetAiFilesForFile(string siteUrl, string folderPath, string file)
+    {
+        return await _sharePointService.GetFilesByExtensionFromFolder(siteUrl, folderPath, "ai", Path.GetFileNameWithoutExtension(file));
+    }
+
+    public async Task<ChatMessage> ChatWithDataListAsync(string siteUrl, string folderPath, List<int> itemIds, Chat chat)
+    {
+        // Get the source files based on the provided item IDs
+        var sourceFiles = await _sharePointService.GetFilesByItemIdsFromFolder(siteUrl, folderPath, itemIds);
+
+        // Calculate the embedding for the last user's message in the chat history
+        var queryEmbedding = await _openAIService.CalculateEmbeddingAsync(chat.ChatHistory.Last(t => t.Role == "user").Content);
+
+        var results = new List<dynamic>();
+
+        foreach (var file in sourceFiles)
+        {
+            // Get AI files associated with the current file
+            var aiFiles = await GetAiFilesForFile(siteUrl, folderPath, file);
+
+            // Download the current file content from SharePoint
+            var bytes = await _sharePointService.DownloadFileFromSharePointAsync(siteUrl, folderPath + "/" + file);
+
+            // Convert the file content into a list of lines
+            var lines = ConvertFileContentToList(bytes, Path.GetExtension(file).ToLowerInvariant());
+
+            // Compare embeddings and get the scores
+            var scores = _openAIService.CompareEmbeddings(queryEmbedding, aiFiles);
+
+            // Create result items with text and score
+            results.AddRange(lines
+                .Select((line, index) => new { Text = line, Score = scores.ElementAt(index) })
+                .OrderByDescending(result => result.Score));
+        }
+
+        // Take the top 150 results
+        var topResults = results
+            .Take(200)
+            .ToList();
+
+        // Chat with the best context
+        return await ChatWithBestContext(topResults, chat);
+    }
+
     private List<string> ConvertFileContentToList(byte[] bytes, string extension)
     {
         switch (extension)
@@ -169,12 +213,29 @@ public class CorporAIteService
 
     public async Task<ChatMessage> ChatAsync(Chat chat)
     {
-        var chatResponse = await _openAIService.ChatWithContextAsync(chat.System,
-                chat.Temperature,
-                chat.ChatHistory.Select(a => this._mapper.Map<OpenAI.GPT3.ObjectModels.RequestModels.ChatMessage>(a)));
+        // Check if there are any item IDs in the chat
+        if (chat.ItemIds.Any())
+        {
+            // Chat with data list using item IDs
+            return await ChatWithDataListAsync(chat.SiteUrl, chat.FolderUrl, chat.ItemIds, chat);
+        }
+        else
+        {
+            // Prepare chat messages for the OpenAIService
+            var openAiChatMessages = chat.ChatHistory
+                .Select(message => _mapper.Map<OpenAI.GPT3.ObjectModels.RequestModels.ChatMessage>(message));
 
-        return this._mapper.Map<ChatMessage>(chatResponse);
+            // Chat with context using the OpenAIService
+            var chatResponse = await _openAIService.ChatWithContextAsync(
+                chat.System,
+                chat.Temperature,
+                openAiChatMessages);
+
+            // Map the response to the ChatMessage model
+            return _mapper.Map<ChatMessage>(chatResponse);
+        }
     }
+
 
     private static List<string> ConvertCsvToList(byte[] csvBytes)
     {

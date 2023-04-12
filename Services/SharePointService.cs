@@ -124,6 +124,49 @@ public class SharePointService
         }
     }
 
+    public async Task<List<string>> GetFilesByItemIdsFromFolder(string siteUrl, string folderUrl, List<int> itemIds)
+    {
+        List<string> fileNames = new List<string>();
+
+        using (var clientContext = GetContext(siteUrl))
+        {
+            var web = clientContext.Web;
+            var folder = web.GetFolderByServerRelativeUrl(folderUrl);
+            clientContext.Load(folder, a => a.Name);
+            await clientContext.ExecuteQueryRetryAsync();
+            var list = web.Lists.GetByTitle(folder.Name);
+
+            var camlQuery = new CamlQuery
+            {
+                ViewXml = $@"<View>
+                                    <Query>
+                                        <Where>
+                                            <In>
+                                                <FieldRef Name='ID' />
+                                                <Values>
+                                                    {string.Join("", itemIds.ConvertAll(id => $"<Value Type='Number'>{id}</Value>"))}
+                                                </Values>
+                                            </In>
+                                        </Where>
+                                    </Query>
+                                  </View>"
+            };
+
+            var filteredFiles = list.GetItems(camlQuery);
+            clientContext.Load(filteredFiles);
+            await clientContext.ExecuteQueryRetryAsync();
+
+            foreach (var item in filteredFiles)
+            {
+                string fileName = item["FileLeafRef"].ToString();
+                fileNames.Add(fileName);
+            }
+        }
+
+        return fileNames;
+
+    }
+
     public async Task<List<byte[]>> GetFilesByExtensionFromFolder(string siteUrl, string folderUrl, string extension, string startsWith = "")
     {
         string cacheKey = $"GetFilesByExtensionFromFolder:{siteUrl}:{folderUrl}:{extension}:{startsWith}";
@@ -152,8 +195,10 @@ public class SharePointService
         {
             var web = clientContext.Web;
             var folder = web.GetFolderByServerRelativeUrl(folderUrl);
+            clientContext.Load(folder, a => a.Name);
+            await clientContext.ExecuteQueryRetryAsync();
 
-            var list = web.Lists.GetByTitle("Documents");
+            var list = web.Lists.GetByTitle(folder.Name);
 
             var camlQuery = new CamlQuery
             {
