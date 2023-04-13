@@ -102,25 +102,6 @@ public class CorporAIteService
         }
     }
 
-    public async Task<ChatMessage> ChatWithDataAsync(string siteUrl, string folderPath, string fileName, Chat chat)
-    {
-        var files = await _sharePointService.GetFilesByExtensionFromFolder(siteUrl, folderPath, "ai", Path.GetFileNameWithoutExtension(fileName));
-        var queryEmbedding = await _openAIService.CalculateEmbeddingAsync(chat.ChatHistory.Where(t => t.Role == "user").Last().Content);
-
-        var bytes = await _sharePointService.DownloadFileFromSharePointAsync(siteUrl, folderPath + "/" + fileName);
-        var lines = ConvertFileContentToList(bytes, Path.GetExtension(fileName).ToLowerInvariant());
-
-        var vectors = _openAIService.CompareEmbeddings(queryEmbedding, files);
-
-        var topResults = lines
-            .Select((l, i) => new { Text = l, Score = vectors.ElementAt(i) })
-            .OrderByDescending(r => r.Score)
-            .Take(200)
-            .ToList();
-
-        return await ChatWithBestContext(topResults.Select(r => (dynamic)r).ToList(), chat);
-    }
-
     private async Task<List<byte[]>> GetAiFilesForFile(string siteUrl, string folderPath, string file)
     {
         return await _sharePointService.GetFilesByExtensionFromFolder(siteUrl, folderPath, "ai", Path.GetFileNameWithoutExtension(file));
