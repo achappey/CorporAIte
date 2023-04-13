@@ -65,7 +65,7 @@ public class CorporAIteService
         }
     }
 
-    public async Task CalculateEmbeddingsAsync(string siteUrl, string folderPath, string fileName)
+    public async Task<List<byte[]>> CalculateEmbeddingsAsync(string siteUrl, string folderPath, string fileName)
     {
         byte[] bytes = await _sharePointService.DownloadFileFromSharePointAsync(siteUrl, Path.Combine(folderPath, fileName));
 
@@ -76,6 +76,8 @@ public class CorporAIteService
         int batchSize = Math.Min(maxBatchSize, lines.Count);
         int suffix = 1;
 
+        List<byte[]> uploadedFiles = new List<byte[]>();
+
         while (lines.Any())
         {
             try
@@ -84,6 +86,8 @@ public class CorporAIteService
                 byte[] embeddings = await _openAIService.CalculateEmbeddingAsync(currentBatch);
                 string fileNameWithSuffix = $"{Path.GetFileNameWithoutExtension(fileName)}-{suffix}.ai";
                 await _sharePointService.UploadFileToSharePointAsync(embeddings, siteUrl, folderPath, fileNameWithSuffix);
+
+                uploadedFiles.Add(embeddings);
 
                 lines = lines.Skip(batchSize).ToList();
                 suffix++;
@@ -100,6 +104,8 @@ public class CorporAIteService
                 }
             }
         }
+
+        return uploadedFiles;
     }
 
     private async Task<List<byte[]>> GetAiFilesForFile(string siteUrl, string folderPath, string file)
@@ -116,11 +122,16 @@ public class CorporAIteService
 
         foreach (var file in files)
         {
-            // Get AI files associated with the current file
-
             var siteUrl = this._sharePointService.ExtractSiteServerRelativeUrl(file);
             var folderPath = this._sharePointService.ExtractServerRelativeFolderPath(file);
+
+            // Get AI files associated with the current file
             var aiFiles = await GetAiFilesForFile(siteUrl, folderPath, file);
+
+            if (!aiFiles.Any())
+            {
+                aiFiles = await CalculateEmbeddingsAsync(siteUrl, folderPath, file);
+            }
 
             // Download the current file content from SharePoint
             var bytes = await _sharePointService.DownloadFileFromSharePointAsync(siteUrl, file);
