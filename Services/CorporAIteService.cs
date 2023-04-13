@@ -126,23 +126,23 @@ public class CorporAIteService
         return await _sharePointService.GetFilesByExtensionFromFolder(siteUrl, folderPath, "ai", Path.GetFileNameWithoutExtension(file));
     }
 
-    public async Task<ChatMessage> ChatWithDataListAsync(string siteUrl, string folderPath, List<int> itemIds, Chat chat)
+    public async Task<ChatMessage> ChatWithDataListAsync(List<string> files, Chat chat)
     {
-        // Get the source files based on the provided item IDs
-        var sourceFiles = await _sharePointService.GetFilesByItemIdsFromFolder(siteUrl, folderPath, itemIds);
-
         // Calculate the embedding for the last user's message in the chat history
         var queryEmbedding = await _openAIService.CalculateEmbeddingAsync(chat.ChatHistory.Last(t => t.Role == "user").Content);
 
         var results = new List<dynamic>();
 
-        foreach (var file in sourceFiles)
+        foreach (var file in files)
         {
             // Get AI files associated with the current file
+
+            var siteUrl = this._sharePointService.ExtractSiteServerRelativeUrl(file);
+            var folderPath = this._sharePointService.ExtractServerRelativeFolderPath(file);
             var aiFiles = await GetAiFilesForFile(siteUrl, folderPath, file);
 
             // Download the current file content from SharePoint
-            var bytes = await _sharePointService.DownloadFileFromSharePointAsync(siteUrl, folderPath + "/" + file);
+            var bytes = await _sharePointService.DownloadFileFromSharePointAsync(siteUrl, file);
 
             // Convert the file content into a list of lines
             var lines = ConvertFileContentToList(bytes, Path.GetExtension(file).ToLowerInvariant());
@@ -152,18 +152,19 @@ public class CorporAIteService
 
             // Create result items with text and score
             results.AddRange(lines
-                .Select((line, index) => new { Text = line, Score = scores.ElementAt(index) })
-                .OrderByDescending(result => result.Score));
+                .Select((line, index) => new { Text = line, Score = scores.ElementAt(index) }));
         }
 
         // Take the top 150 results
         var topResults = results
+            .OrderByDescending(result => result.Score)
             .Take(200)
             .ToList();
 
         // Chat with the best context
         return await ChatWithBestContext(topResults, chat);
     }
+
 
     private List<string> ConvertFileContentToList(byte[] bytes, string extension)
     {
@@ -214,10 +215,10 @@ public class CorporAIteService
     public async Task<ChatMessage> ChatAsync(Chat chat)
     {
         // Check if there are any item IDs in the chat
-        if (chat.ItemIds.Any())
+        if (chat.SourceFiles.Any())
         {
             // Chat with data list using item IDs
-            return await ChatWithDataListAsync(chat.SiteUrl, chat.FolderUrl, chat.ItemIds, chat);
+            return await ChatWithDataListAsync(chat.SourceFiles.Select(a => a.Path).ToList(), chat);
         }
         else
         {

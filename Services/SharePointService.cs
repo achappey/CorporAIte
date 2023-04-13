@@ -124,9 +124,29 @@ public class SharePointService
         }
     }
 
-    public async Task<List<string>> GetFilesByItemIdsFromFolder(string siteUrl, string folderUrl, List<int> itemIds)
+    public async Task<List<byte[]>> GetFilesByExtensionFromFolder(string siteUrl, string folderUrl, string extension, string startsWith = "")
     {
-        List<string> fileNames = new List<string>();
+        string cacheKey = $"GetFilesByExtensionFromFolder:{siteUrl}:{folderUrl}:{extension}:{startsWith}";
+
+        (List<byte[]>, DateTime) cachedValue;
+        lock (_verctorCacheLock)
+        {
+            if (_vectorCache.TryGetValue(cacheKey, out cachedValue))
+            {
+                if (DateTime.UtcNow - cachedValue.Item2 < CACHE_EXPIRATION_TIME)
+                {
+                    // Item found in cache and is not expired, return it
+                    return cachedValue.Item1;
+                }
+                else
+                {
+                    // Item found in cache but has expired, remove it
+                    _cache.Remove(cacheKey);
+                }
+            }
+        }
+
+        List<byte[]> byteArrays = new List<byte[]>();
 
         using (var clientContext = GetContext(siteUrl))
         {
@@ -134,40 +154,65 @@ public class SharePointService
             var folder = web.GetFolderByServerRelativeUrl(folderUrl);
             clientContext.Load(folder, a => a.Name);
             await clientContext.ExecuteQueryRetryAsync();
+
             var list = web.Lists.GetByTitle(folder.Name);
 
             var camlQuery = new CamlQuery
             {
-                ViewXml = $@"<View>
-                                    <Query>
-                                        <Where>
-                                            <In>
-                                                <FieldRef Name='ID' />
-                                                <Values>
-                                                    {string.Join("", itemIds.ConvertAll(id => $"<Value Type='Number'>{id}</Value>"))}
-                                                </Values>
-                                            </In>
-                                        </Where>
-                                    </Query>
-                                  </View>"
+                ViewXml = $@"<View Scope='RecursiveAll'>
+                        <Query>
+                            <Where>
+                                <And>
+                                <BeginsWith>
+                                        <FieldRef Name='FileLeafRef'/>
+                                        <Value Type='File'>{startsWith}</Value>
+                                    </BeginsWith>
+                                    <Eq>
+                                        <FieldRef Name='File_x0020_Type'/>
+                                        <Value Type='Text'>{extension}</Value>
+                                    </Eq>
+                                </And>
+                            </Where>
+                        </Query>
+                     </View>",
+                FolderServerRelativeUrl = folderUrl
             };
 
             var filteredFiles = list.GetItems(camlQuery);
-            clientContext.Load(filteredFiles);
+            clientContext.Load(filteredFiles, items => items.Include(item => item.File));
             await clientContext.ExecuteQueryRetryAsync();
 
             foreach (var item in filteredFiles)
             {
-                string fileName = item["FileLeafRef"].ToString();
-                fileNames.Add(fileName);
+                var file = item.File;
+                var fileStream = file.OpenBinaryStream();
+                await clientContext.ExecuteQueryRetryAsync();
+
+                using (var memoryStream = new MemoryStream())
+                {
+                    fileStream.Value.CopyTo(memoryStream);
+                    byteArrays.Add(memoryStream.ToArray());
+                }
             }
         }
 
-        return fileNames;
+        // Add the file bytes to the cache
+        lock (_verctorCacheLock)
+        {
+            if (_vectorCache.Count >= MAX_CACHE_SIZE)
+            {
+                // Cache is full, remove the least recently used item
+                var lruItem = _cache.OrderBy(x => x.Value.Item2).First();
+                _cache.Remove(lruItem.Key);
+            }
 
+            _vectorCache[cacheKey] = (byteArrays, DateTime.UtcNow);
+        }
+
+        return byteArrays;
     }
 
-    public async Task<List<byte[]>> GetFilesByExtensionFromFolder(string siteUrl, string folderUrl, string extension, string startsWith = "")
+    public async Task<List<byte[]>> GetFilesByExtensionFromFolder2(string siteUrl, string folderUrl, string extension, string startsWith = "")
     {
         string cacheKey = $"GetFilesByExtensionFromFolder:{siteUrl}:{folderUrl}:{extension}:{startsWith}";
 
@@ -361,6 +406,51 @@ public class SharePointService
             }
 
         }
+    }
+
+    public string ExtractSiteServerRelativeUrl(string serverRelativeFullPath)
+    {
+        if (string.IsNullOrWhiteSpace(serverRelativeFullPath))
+        {
+            throw new ArgumentException("Server relative full path must not be null or empty.");
+        }
+
+        int indexOfSites = serverRelativeFullPath.IndexOf("/sites/", StringComparison.OrdinalIgnoreCase);
+
+        if (indexOfSites == -1)
+        {
+            throw new ArgumentException("Invalid SharePoint server relative full path.");
+        }
+
+        int endIndex = serverRelativeFullPath.IndexOf('/', indexOfSites + "/sites/".Length);
+
+        if (endIndex == -1)
+        {
+            endIndex = serverRelativeFullPath.Length;
+        }
+
+        string siteServerRelativeUrl = serverRelativeFullPath.Substring(0, endIndex);
+
+        return siteServerRelativeUrl;
+    }
+
+    public string ExtractServerRelativeFolderPath(string serverRelativeFullPath)
+    {
+        if (string.IsNullOrWhiteSpace(serverRelativeFullPath))
+        {
+            throw new ArgumentException("Server relative URL must not be null or empty.");
+        }
+
+        int lastSlashIndex = serverRelativeFullPath.LastIndexOf('/');
+
+        if (lastSlashIndex == -1)
+        {
+            throw new ArgumentException("Invalid server-relative URL.");
+        }
+
+        string directoryPath = serverRelativeFullPath.Substring(0, lastSlashIndex);
+
+        return directoryPath;
     }
 
 
