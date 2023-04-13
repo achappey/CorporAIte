@@ -1,42 +1,47 @@
 using AutoMapper;
 using CorporAIte;
 using CorporAIte.Profiles;
-using Microsoft.Extensions.Caching.Memory;
 
+// Configure web application
 var builder = WebApplication.CreateBuilder(args);
 var appConfig = builder.Configuration.Get<AppConfig>();
 
-// Add services to the container.
+// Register services
 builder.Services.AddSingleton<CorporAIteService>();
 builder.Services.AddSingleton<AIService>(a => new AIService(appConfig.OpenAI));
 builder.Services.AddSingleton<SharePointService>(y => new SharePointService(appConfig.SharePoint.TenantName, appConfig.SharePoint.ClientId, appConfig.SharePoint.ClientSecret));
 
+// Configure AutoMapper
 var mapperConfig = new MapperConfiguration(mc =>
 {
     mc.AddProfile(new ChatProfile());
 });
-
 IMapper mapper = mapperConfig.CreateMapper();
 builder.Services.AddSingleton(mapper);
 
+// Add controllers
 builder.Services.AddControllers();
 
-// Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
+// Configure Swagger/OpenAPI
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
+// Build the application
 var app = builder.Build();
 
+// Use Swagger and Swagger UI in non-production environments
 if (!app.Environment.IsProduction())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
 }
 
+// Configure middleware
 app.UseHttpsRedirection();
-
 app.UseAuthorization();
 
+// Map controllers
 app.MapControllers();
 
+// Run the application
 app.Run();

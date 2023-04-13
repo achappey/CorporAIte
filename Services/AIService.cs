@@ -26,25 +26,32 @@ public class AIService
     public List<double> CompareEmbeddings(byte[] query, List<byte[]> embeddings)
     {
         var queryEmbedding = ConvertEmbedding(query);
-        var queryEmbeddingVector = queryEmbedding.Data.FirstOrDefault().Embedding.ToArray();
+        var queryEmbeddingVector = queryEmbedding.Data.FirstOrDefault()?.Embedding.ToArray();
 
-        var mergeEmbeddings = embeddings.Select(a => ConvertEmbedding(a))
-        .Select(p => p.Data.Select(z => CalculateCosineSimilarity(z.Embedding.ToArray(), queryEmbeddingVector)))
-        .SelectMany(x => x)
-        .ToList();
+        if (queryEmbeddingVector == null)
+        {
+            throw new ArgumentException("Invalid query embedding.");
+        }
+
+        var mergeEmbeddings = embeddings
+            .Select(ConvertEmbedding)
+            .SelectMany(p => p.Data.Select(z => CalculateCosineSimilarity(z.Embedding.ToArray(), queryEmbeddingVector)))
+            .ToList();
 
         return mergeEmbeddings;
     }
 
+
     public async Task<byte[]> CalculateEmbeddingAsync(object input)
     {
-        var embeddingResult = await this._openAIService.Embeddings.CreateEmbedding(
-            new OpenAI.GPT3.ObjectModels.RequestModels.EmbeddingCreateRequest()
-            {
-                Input = input is string ? input as string : null,
-                InputAsList = input is List<string> ? input as List<string> : null,
-                Model = OpenAI.GPT3.ObjectModels.Models.TextEmbeddingAdaV2
-            });
+        var embeddingRequest = new OpenAI.GPT3.ObjectModels.RequestModels.EmbeddingCreateRequest()
+        {
+            Input = input is string ? input as string : null,
+            InputAsList = input is List<string> ? input as List<string> : null,
+            Model = OpenAI.GPT3.ObjectModels.Models.TextEmbeddingAdaV2
+        };
+
+        var embeddingResult = await this._openAIService.Embeddings.CreateEmbedding(embeddingRequest);
 
         if (!embeddingResult.Successful)
         {
@@ -53,6 +60,7 @@ public class AIService
 
         return Encoding.UTF8.GetBytes(JsonSerializer.Serialize(embeddingResult));
     }
+
 
     public async Task<ChatMessage> ChatWithContextAsync(string context, float temperature, IEnumerable<ChatMessage> messages)
     {
@@ -70,8 +78,7 @@ public class AIService
             Messages = messageHistory
         };
 
-        var response = await _openAIService.ChatCompletion.CreateCompletion(chatCompletionRequest)
-                                        .ConfigureAwait(false);
+        var response = await _openAIService.ChatCompletion.CreateCompletion(chatCompletionRequest).ConfigureAwait(false);
 
         if (!response.Successful)
         {
@@ -86,6 +93,7 @@ public class AIService
 
         return response.Choices.FirstOrDefault()?.Message;
     }
+
 
     private static double CalculateCosineSimilarity(double[] vector1, double[] vector2)
     {

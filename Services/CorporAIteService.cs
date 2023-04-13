@@ -214,21 +214,50 @@ public class CorporAIteService
         }
         else
         {
-            // Prepare chat messages for the OpenAIService
-            var openAiChatMessages = chat.ChatHistory
-                .Select(message => _mapper.Map<OpenAI.GPT3.ObjectModels.RequestModels.ChatMessage>(message));
+            int initialMessageLength = chat.ChatHistory.Count > 0 && chat.ChatHistory.Last().Role == "user" ? chat.ChatHistory.Last().Content.Length : 0;
 
-            // Chat with context using the OpenAIService
-            var chatResponse = await _openAIService.ChatWithContextAsync(
-                chat.System,
-                chat.Temperature,
-                openAiChatMessages);
+            while (initialMessageLength > 0)
+            {
+                try
+                {
+                    return await AttemptChatAsync(chat);
+                }
+                catch (FormatException)
+                {
+                    // Remove half of the last user message
+                    if (chat.ChatHistory.Count > 0 && chat.ChatHistory.Last().Role == "user" && chat.ChatHistory.Last().Content.Length > 1)
+                    {
+                        chat.ChatHistory.Last().Content = chat.ChatHistory.Last().Content.Substring(0, chat.ChatHistory.Last().Content.Length / 2);
+                        initialMessageLength = chat.ChatHistory.Last().Content.Length;
+                    }
+                    else
+                    {
+                        // If empty or no user message, throw an exception
+                        throw new InvalidOperationException("The last user message is empty or could not be shortened further.");
+                    }
+                }
+            }
 
-            // Map the response to the ChatMessage model
-            return _mapper.Map<ChatMessage>(chatResponse);
+            // If the message length counter reaches 0, throw an exception
+            throw new InvalidOperationException("The last user message could not be shortened further without success.");
         }
     }
 
+    private async Task<ChatMessage> AttemptChatAsync(Chat chat)
+    {
+        // Prepare chat messages for the OpenAIService
+        var openAiChatMessages = chat.ChatHistory
+            .Select(message => _mapper.Map<OpenAI.GPT3.ObjectModels.RequestModels.ChatMessage>(message));
+
+        // Chat with context using the OpenAIService
+        var chatResponse = await _openAIService.ChatWithContextAsync(
+            chat.System,
+            chat.Temperature,
+            openAiChatMessages);
+
+        // Map the response to the ChatMessage model
+        return _mapper.Map<ChatMessage>(chatResponse);
+    }
 
     private static List<string> ConvertCsvToList(byte[] csvBytes)
     {
@@ -241,8 +270,8 @@ public class CorporAIteService
             IgnoreBlankLines = true,
             MissingFieldFound = null
         };
-
-        using (var reader = new StreamReader(new MemoryStream(csvBytes)))
+        using (var memoryStream = new MemoryStream(csvBytes))
+        using (var reader = new StreamReader(memoryStream))
         using (var csv = new CsvReader(reader, config))
         {
             var recordsList = csv.GetRecords<dynamic>();
@@ -263,4 +292,7 @@ public class CorporAIteService
 
         return records;
     }
+
+
 }
+
