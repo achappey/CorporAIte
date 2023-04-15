@@ -13,5 +13,7 @@ public class SharePoint
     public string ClientId { get; set; } = null!;
     public string ClientSecret { get; set; } = null!;
     public string TenantName { get; set; } = null!;
+    public string AISiteUrl { get; set; } = null!;
+    public string AIFolderUrl { get; set; } = null!;
 
 }

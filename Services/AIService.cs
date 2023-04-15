@@ -1,6 +1,7 @@
 using System.Numerics;
 using System.Text;
 using System.Text.Json;
+using CorporAIte;
 using OpenAI.GPT3.Managers;
 using OpenAI.GPT3.ObjectModels.RequestModels;
 
@@ -8,11 +9,11 @@ public class AIService
 {
     private readonly OpenAIService _openAIService;
 
-    public AIService(string apiKey)
+    public AIService(AppConfig config)
     {
         this._openAIService = new OpenAI.GPT3.Managers.OpenAIService(new OpenAI.GPT3.OpenAiOptions()
         {
-            ApiKey = apiKey
+            ApiKey = config.OpenAI
         });
     }
 

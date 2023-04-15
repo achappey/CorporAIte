@@ -1,12 +1,6 @@
-
-using System.Globalization;
-using System.Text;
 using AutoMapper;
+using CorporAIte.Extensions;
 using CorporAIte.Models;
-using CsvHelper;
-using CsvHelper.Configuration;
-using DocumentFormat.OpenXml.Packaging;
-using DocumentFormat.OpenXml.Wordprocessing;
 
 public class CorporAIteService
 {
@@ -14,161 +8,119 @@ public class CorporAIteService
 
     private readonly SharePointService _sharePointService;
 
+    private readonly SharePointAIService _sharePointAIService;
+
     private readonly AIService _openAIService;
 
     private readonly IMapper _mapper;
 
+    private readonly List<string> supportedExtensions = new List<string> { ".aspx", ".docx", ".csv" };
+
     public CorporAIteService(ILogger<CorporAIteService> logger,
     SharePointService sharePointService,
+    SharePointAIService sharePointAIService,
     AIService openAIService,
     IMapper mapper)
     {
         _logger = logger;
         _sharePointService = sharePointService;
+        _sharePointAIService = sharePointAIService;
         _openAIService = openAIService;
         _mapper = mapper;
     }
 
-    public static List<string> ConvertDocxToText(byte[] docxBytes)
+    public async Task<List<byte[]>> CalculateFolderEmbeddingsAsync(string siteUrl, string folderPath)
     {
-        var result = new List<string>();
+        var supportedFiles = await _sharePointService.GetSupportedFilesInFolderAsync(siteUrl, folderPath, this.supportedExtensions);
 
-        using (var memoryStream = new MemoryStream(docxBytes))
+        var tasks = supportedFiles.Select(async file =>
         {
-            using (var wordDocument = WordprocessingDocument.Open(memoryStream, false))
-            {
-                var body = wordDocument.MainDocumentPart.Document.Body;
-                var paragraphs = body.Descendants<Paragraph>();
+            var lines = await GetLinesAsync(siteUrl, file);
+            return await this._sharePointAIService.CalculateAndUploadEmbeddingsAsync(folderPath, file, lines);
+        });
 
+        var results = await Task.WhenAll(tasks);
 
-                foreach (var paragraph in paragraphs)
-                {
-                    var sb = new StringBuilder();
-                    var runs = paragraph.Elements<Run>();
-
-                    foreach (var run in runs)
-                    {
-                        var textElements = run.Elements<Text>();
-                        var text = string.Join(string.Empty, textElements.Select(t => t.Text));
-                        sb.Append(text);
-                    }
-
-                    if (!string.IsNullOrEmpty(sb.ToString()))
-                    {
-                        result.Add(sb.ToString());
-                    }
-
-                }
-
-                return result;
-            }
-        }
+        return results.SelectMany(x => x).ToList();
     }
+
 
     public async Task<List<byte[]>> CalculateEmbeddingsAsync(string siteUrl, string folderPath, string fileName)
     {
-        byte[] bytes = await _sharePointService.DownloadFileFromSharePointAsync(siteUrl, Path.Combine(folderPath, fileName));
-
-        string extension = Path.GetExtension(fileName).ToLowerInvariant();
-        List<string> lines = ConvertFileContentToList(bytes, extension);
-
-        const int maxBatchSize = 2000;
-        int batchSize = Math.Min(maxBatchSize, lines.Count);
-        int suffix = 1;
-
-        List<byte[]> uploadedFiles = new List<byte[]>();
-
-        while (lines.Any())
-        {
-            try
-            {
-                List<string> currentBatch = lines.Take(batchSize).ToList();
-                byte[] embeddings = await _openAIService.CalculateEmbeddingAsync(currentBatch);
-                string fileNameWithSuffix = $"{Path.GetFileNameWithoutExtension(fileName)}-{suffix}.ai";
-                await _sharePointService.UploadFileToSharePointAsync(embeddings, siteUrl, folderPath, fileNameWithSuffix);
-
-                uploadedFiles.Add(embeddings);
-
-                lines = lines.Skip(batchSize).ToList();
-                suffix++;
-                batchSize = Math.Min(maxBatchSize, lines.Count);
-            }
-            catch (Exception ex)
-            {
-                batchSize = Math.Max(1, batchSize / 2);
-                if (batchSize == 1)
-                {
-                    // Log the exception and break the loop if it still fails with batchSize == 1
-                    _logger.LogError(ex, "Failed to calculate embeddings with batchSize 1.");
-                    break;
-                }
-            }
-        }
-
-        return uploadedFiles;
+        var lines = await GetLinesAsync(siteUrl, Path.Combine(folderPath, fileName));
+        return await this._sharePointAIService.CalculateAndUploadEmbeddingsAsync(folderPath, fileName, lines);
     }
 
-    private async Task<List<byte[]>> GetAiFilesForFile(string siteUrl, string folderPath, string file)
+    private async Task<List<string>> GetLinesAsync(string siteUrl, string file)
     {
-        return await _sharePointService.GetFilesByExtensionFromFolder(siteUrl, folderPath, "ai", Path.GetFileNameWithoutExtension(file));
-    }
+        string extension = Path.GetExtension(file).ToLowerInvariant();
 
-    public async Task<ChatMessage> ChatWithDataListAsync(List<string> files, Chat chat)
-    {
-        // Calculate the embedding for the last user's message in the chat history
-        var queryEmbedding = await _openAIService.CalculateEmbeddingAsync(chat.ChatHistory.Last(t => t.Role == "user").Content);
-
-        var results = new List<dynamic>();
-
-        foreach (var file in files)
+        if (extension == ".aspx")
         {
-            var siteUrl = this._sharePointService.ExtractSiteServerRelativeUrl(file);
-            var folderPath = this._sharePointService.ExtractServerRelativeFolderPath(file);
-
-            // Get AI files associated with the current file
-            var aiFiles = await GetAiFilesForFile(siteUrl, folderPath, file);
-
-            if (!aiFiles.Any())
-            {
-                aiFiles = await CalculateEmbeddingsAsync(siteUrl, folderPath, file);
-            }
-
-            // Download the current file content from SharePoint
-            var bytes = await _sharePointService.DownloadFileFromSharePointAsync(siteUrl, file);
-
-            // Convert the file content into a list of lines
-            var lines = ConvertFileContentToList(bytes, Path.GetExtension(file).ToLowerInvariant());
-
-            // Compare embeddings and get the scores
-            var scores = _openAIService.CompareEmbeddings(queryEmbedding, aiFiles);
-
-            // Create result items with text and score
-            results.AddRange(lines
-                .Select((line, index) => new { Text = line, Score = scores.ElementAt(index) }));
+            return await _sharePointService.GetSharePointPageTextAsync(siteUrl, file);
         }
-
-        // Take the top 150 results
-        var topResults = results
-            .OrderByDescending(result => result.Score)
-            .Take(200)
-            .ToList();
-
-        // Chat with the best context
-        return await ChatWithBestContext(topResults, chat);
+        else
+        {
+            byte[] bytes = await _sharePointService.DownloadFileFromSharePointAsync(siteUrl, file);
+            return ConvertFileContentToList(bytes, extension);
+        }
     }
-
 
     private List<string> ConvertFileContentToList(byte[] bytes, string extension)
     {
         switch (extension)
         {
             case ".docx":
-                return ConvertDocxToText(bytes);
+                return bytes.ConvertDocxToText();
             case ".csv":
-                return ConvertCsvToList(bytes);
+                return bytes.ConvertCsvToList();
             default:
                 throw new NotSupportedException($"Unsupported file extension: {extension}");
         }
+    }
+
+    private async Task<ChatMessage> ChatWithDataFolderAsync(List<string> folders, Chat chat)
+    {
+        var queryEmbedding = await _openAIService.CalculateEmbeddingAsync(chat.ChatHistory.Last(t => t.Role == "user").Content);
+
+        // Process the folders concurrently
+        var folderTasks = folders.Select(async folder =>
+        {
+            var siteUrl = this._sharePointService.ExtractSiteServerRelativeUrl(folder);
+
+            // Get the supported files in the folder
+            var files = await _sharePointService.GetSupportedFilesInFolderAsync(siteUrl, folder, this.supportedExtensions);
+
+            // Process the files concurrently
+            var fileTasks = files.Select(async file =>
+            {
+                var aiFiles = await this._sharePointAIService.GetAiFilesForFile(folder, file);
+
+                var lines = await GetLinesAsync(siteUrl, file);
+
+                if (!aiFiles.Any())
+                {
+                    aiFiles = await this._sharePointAIService.CalculateAndUploadEmbeddingsAsync(folder, file, lines);
+                }
+
+                var scores = _openAIService.CompareEmbeddings(queryEmbedding, aiFiles);
+
+                return lines.Select((line, index) => new { Text = line, Score = scores.ElementAt(index) });
+            });
+
+            // Wait for all file tasks to complete and concatenate the results
+            return (await Task.WhenAll(fileTasks)).SelectMany(r => r).ToList();
+        });
+
+        // Wait for all folder tasks to complete and concatenate the results
+        var allResults = (await Task.WhenAll(folderTasks)).SelectMany(r => r as IEnumerable<dynamic>).ToList();
+
+        var topResults = allResults
+            .OrderByDescending(result => result.Score)
+            .Take(200)
+            .ToList();
+
+        return await ChatWithBestContext(topResults, chat);
     }
 
     private async Task<ChatMessage> ChatWithBestContext(List<dynamic> topResults, Chat chat)
@@ -206,41 +158,33 @@ public class CorporAIteService
 
     public async Task<ChatMessage> ChatAsync(Chat chat)
     {
-        // Check if there are any item IDs in the chat
-        if (chat.SourceFiles.Any())
+        if (chat.SourceFolders.Any())
         {
-            // Chat with data list using item IDs
-            return await ChatWithDataListAsync(chat.SourceFiles.Select(a => a.Path).ToList(), chat);
+            return await ChatWithDataFolderAsync(chat.SourceFolders.Select(a => a.Path).ToList(), chat);
         }
         else
         {
-            int initialMessageLength = chat.ChatHistory.Count > 0 && chat.ChatHistory.Last().Role == "user" ? chat.ChatHistory.Last().Content.Length : 0;
-
-            while (initialMessageLength > 0)
-            {
-                try
-                {
-                    return await AttemptChatAsync(chat);
-                }
-                catch (FormatException)
-                {
-                    // Remove half of the last user message
-                    if (chat.ChatHistory.Count > 0 && chat.ChatHistory.Last().Role == "user" && chat.ChatHistory.Last().Content.Length > 1)
-                    {
-                        chat.ChatHistory.Last().Content = chat.ChatHistory.Last().Content.Substring(0, chat.ChatHistory.Last().Content.Length / 2);
-                        initialMessageLength = chat.ChatHistory.Last().Content.Length;
-                    }
-                    else
-                    {
-                        // If empty or no user message, throw an exception
-                        throw new InvalidOperationException("The last user message is empty or could not be shortened further.");
-                    }
-                }
-            }
-
-            // If the message length counter reaches 0, throw an exception
-            throw new InvalidOperationException("The last user message could not be shortened further without success.");
+            return await ChatWithFallback(chat);
         }
+    }
+
+    private async Task<ChatMessage> ChatWithFallback(Chat chat)
+    {
+        int initialMessageLength = chat.GetLastUserMessageLength();
+
+        while (initialMessageLength > 0)
+        {
+            try
+            {
+                return await AttemptChatAsync(chat);
+            }
+            catch (FormatException)
+            {
+                initialMessageLength = chat.ShortenLastUserMessage();
+            }
+        }
+
+        throw new InvalidOperationException("The last user message could not be shortened further without success.");
     }
 
     private async Task<ChatMessage> AttemptChatAsync(Chat chat)
@@ -258,41 +202,6 @@ public class CorporAIteService
         // Map the response to the ChatMessage model
         return _mapper.Map<ChatMessage>(chatResponse);
     }
-
-    private static List<string> ConvertCsvToList(byte[] csvBytes)
-    {
-        var records = new List<string>();
-
-        var config = new CsvConfiguration(CultureInfo.InvariantCulture)
-        {
-            PrepareHeaderForMatch = args => args.Header.ToLower(),
-            TrimOptions = TrimOptions.Trim,
-            IgnoreBlankLines = true,
-            MissingFieldFound = null
-        };
-        using (var memoryStream = new MemoryStream(csvBytes))
-        using (var reader = new StreamReader(memoryStream))
-        using (var csv = new CsvReader(reader, config))
-        {
-            var recordsList = csv.GetRecords<dynamic>();
-
-            foreach (var record in recordsList)
-            {
-                var recordDictionary = record as IDictionary<string, object>;
-                var formattedRecord = new List<string>();
-
-                foreach (var entry in recordDictionary)
-                {
-                    formattedRecord.Add($"{entry.Key}:{entry.Value.ToString().Trim()}");
-                }
-
-                records.Add(string.Join(";", formattedRecord));
-            }
-        }
-
-        return records;
-    }
-
 
 }
 

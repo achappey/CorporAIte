@@ -1,4 +1,6 @@
 
+using CorporAIte;
+using HtmlAgilityPack;
 using Microsoft.SharePoint.Client;
 using PnP.Framework;
 
@@ -13,13 +15,17 @@ public class SharePointService
     private static readonly object _cacheLock = new object();
 
     private static Dictionary<string, (List<byte[]>, DateTime)> _vectorCache = new Dictionary<string, (List<byte[]>, DateTime)>();
-    private static readonly object _verctorCacheLock = new object();
+    private static readonly object _vectorCacheLock = new object();
 
-    public SharePointService(string tenantName, string clientId, string clientSecret)
+    private static Dictionary<string, (List<string>, DateTime)> _pageCache = new Dictionary<string, (List<string>, DateTime)>();
+    private static readonly object _pageCacheLock = new object();
+
+
+    public SharePointService(AppConfig config)
     {
-        this._tenantName = tenantName;
-        this._clientId = clientId;
-        this._clientSecret = clientSecret;
+        this._tenantName = config.SharePoint.TenantName;
+        this._clientId = config.SharePoint.ClientId;
+        this._clientSecret = config.SharePoint.ClientSecret;
     }
 
     private string BaseUrl
@@ -58,6 +64,78 @@ public class SharePointService
         AuthenticationManager authManager = new AuthenticationManager();
 
         return authManager.GetACSAppOnlyContext(this.ToTenantUrl(url), this._clientId, this._clientSecret);
+    }
+
+    public async Task<List<string>> GetSharePointPageTextAsync(string siteUrl, string pageUrl)
+    {
+        var cacheKey = pageUrl;
+
+        (List<string>, DateTime) cachedValue;
+        lock (_pageCacheLock)
+        {
+            if (_pageCache.TryGetValue(cacheKey, out cachedValue))
+            {
+                if (DateTime.UtcNow - cachedValue.Item2 < CACHE_EXPIRATION_TIME)
+                {
+                    // Item found in cache and is not expired, return it
+                    return cachedValue.Item1;
+                }
+                else
+                {
+                    // Item found in cache but has expired, remove it
+                    _pageCache.Remove(cacheKey);
+                }
+            }
+        }
+
+        List<string> pageParagraphs = new List<string>();
+
+        using (var context = GetContext(siteUrl))
+        {
+            var file = context.Web.GetFileByServerRelativeUrl(pageUrl);
+            context.Load(file, f => f.ListItemAllFields);
+            await context.ExecuteQueryRetryAsync();
+
+            var listItem = file.ListItemAllFields;
+
+            if (listItem["ContentTypeId"].ToString().StartsWith("0x0101009D1CB255DA76424F860D91F20E6C4118"))
+            {
+                string htmlContent = listItem["CanvasContent1"].ToString();
+                var htmlDoc = new HtmlDocument();
+                htmlDoc.LoadHtml(htmlContent);
+
+                var paragraphs = htmlDoc.DocumentNode.SelectNodes("//p");
+                if (paragraphs != null)
+                {
+                    foreach (var paragraph in paragraphs)
+                    {
+                        var text = paragraph.InnerText.Trim();
+
+                        if (!string.IsNullOrEmpty(text))
+                        {
+                            pageParagraphs.Add(text);
+                        }
+
+                    }
+
+                    lock (_pageCacheLock)
+                    {
+                        if (_pageCache.Count >= MAX_CACHE_SIZE)
+                        {
+                            // Cache is full, remove the least recently used item
+                            var lruItem = _cache.OrderBy(x => x.Value.Item2).First();
+                            _cache.Remove(lruItem.Key);
+                        }
+
+                        _pageCache[cacheKey] = (pageParagraphs, DateTime.UtcNow);
+                    }
+                }
+
+
+            }
+        }
+
+        return pageParagraphs;
     }
 
     public async Task<byte[]> DownloadFileFromSharePointAsync(string siteUrl, string filePath)
@@ -124,12 +202,43 @@ public class SharePointService
         }
     }
 
+    public async Task<List<string>> GetSupportedFilesInFolderAsync(string siteUrl, string folderPath, List<string> supportedExtensions)
+    {
+        using (var clientContext = GetContext(siteUrl))
+        {
+            var web = clientContext.Web;
+            var folder = web.GetFolderByServerRelativeUrl(folderPath);
+            var supportedFiles = new List<string>();
+
+            await RetrieveSupportedFilesRecursively(clientContext, folder, supportedFiles, supportedExtensions);
+            return supportedFiles;
+        }
+    }
+
+
+    private async Task RetrieveSupportedFilesRecursively(ClientContext clientContext, Folder folder, List<string> supportedFiles, List<string> supportedExtensions)
+    {
+        clientContext.Load(folder, a => a.Files, a => a.Folders);
+        await clientContext.ExecuteQueryRetryAsync();
+
+        var filteredFiles = folder.Files.Where(file =>
+            supportedExtensions.Contains(Path.GetExtension(file.Name).ToLowerInvariant())).ToList();
+
+        foreach (var file in filteredFiles)
+        {
+            clientContext.Load(file, a => a.ServerRelativeUrl);
+            await clientContext.ExecuteQueryRetryAsync();
+            supportedFiles.Add(file.ServerRelativeUrl);
+        }
+
+    }
+
     public async Task<List<byte[]>> GetFilesByExtensionFromFolder(string siteUrl, string folderUrl, string extension, string startsWith = "")
     {
         string cacheKey = $"GetFilesByExtensionFromFolder:{siteUrl}:{folderUrl}:{extension}:{startsWith}";
 
         (List<byte[]>, DateTime) cachedValue;
-        lock (_verctorCacheLock)
+        lock (_vectorCacheLock)
         {
             if (_vectorCache.TryGetValue(cacheKey, out cachedValue))
             {
@@ -152,39 +261,18 @@ public class SharePointService
         {
             var web = clientContext.Web;
             var folder = web.GetFolderByServerRelativeUrl(folderUrl);
-            clientContext.Load(folder, a => a.Name);
+            clientContext.Load(folder, a => a.Files);
             await clientContext.ExecuteQueryRetryAsync();
 
-            var list = web.Lists.GetByTitle(folder.Name);
+            var filteredFiles = folder.Files.Where(file =>
+                file.Name.StartsWith(startsWith) &&
+                Path.GetExtension(file.Name).ToLowerInvariant() == extension).ToList();
 
-            var camlQuery = new CamlQuery
+            foreach (var file in filteredFiles)
             {
-                ViewXml = $@"<View Scope='RecursiveAll'>
-                        <Query>
-                            <Where>
-                                <And>
-                                <BeginsWith>
-                                        <FieldRef Name='FileLeafRef'/>
-                                        <Value Type='File'>{startsWith}</Value>
-                                    </BeginsWith>
-                                    <Eq>
-                                        <FieldRef Name='File_x0020_Type'/>
-                                        <Value Type='Text'>{extension}</Value>
-                                    </Eq>
-                                </And>
-                            </Where>
-                        </Query>
-                     </View>",
-                FolderServerRelativeUrl = folderUrl
-            };
+                clientContext.Load(file);
+                await clientContext.ExecuteQueryRetryAsync();
 
-            var filteredFiles = list.GetItems(camlQuery);
-            clientContext.Load(filteredFiles, items => items.Include(item => item.File));
-            await clientContext.ExecuteQueryRetryAsync();
-
-            foreach (var item in filteredFiles)
-            {
-                var file = item.File;
                 var fileStream = file.OpenBinaryStream();
                 await clientContext.ExecuteQueryRetryAsync();
 
@@ -197,7 +285,7 @@ public class SharePointService
         }
 
         // Add the file bytes to the cache
-        lock (_verctorCacheLock)
+        lock (_vectorCacheLock)
         {
             if (_vectorCache.Count >= MAX_CACHE_SIZE)
             {

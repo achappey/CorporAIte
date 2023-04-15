@@ -7,9 +7,11 @@ var builder = WebApplication.CreateBuilder(args);
 var appConfig = builder.Configuration.Get<AppConfig>();
 
 // Register services
+builder.Services.AddSingleton<AppConfig>(appConfig);
 builder.Services.AddSingleton<CorporAIteService>();
-builder.Services.AddSingleton<AIService>(a => new AIService(appConfig.OpenAI));
-builder.Services.AddSingleton<SharePointService>(y => new SharePointService(appConfig.SharePoint.TenantName, appConfig.SharePoint.ClientId, appConfig.SharePoint.ClientSecret));
+builder.Services.AddSingleton<AIService>();
+builder.Services.AddSingleton<SharePointService>();
+builder.Services.AddSingleton<SharePointAIService>();
 
 // Configure AutoMapper
 var mapperConfig = new MapperConfiguration(mc =>

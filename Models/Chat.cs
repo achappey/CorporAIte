@@ -9,7 +9,7 @@ namespace CorporAIte.Models
 
         public List<ChatMessage> ChatHistory { get; set; }
 
-        public List<SourceFile>? SourceFiles { get; set; }
+        public List<SourceFolder>? SourceFolders { get; set; }
 
         public Chat()
         {
@@ -22,4 +22,6 @@ namespace CorporAIte.Models
             ChatHistory = chatHistory ?? new List<ChatMessage>();
         }
     }
+
+    
 }
