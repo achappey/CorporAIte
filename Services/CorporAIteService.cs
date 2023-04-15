@@ -14,7 +14,7 @@ public class CorporAIteService
 
     private readonly IMapper _mapper;
 
-    private readonly List<string> supportedExtensions = new List<string> { ".aspx", ".docx", ".csv" };
+    private readonly List<string> supportedExtensions = new List<string> { ".aspx", ".docx", ".csv", ".pdf" };
 
     public CorporAIteService(ILogger<CorporAIteService> logger,
     SharePointService sharePointService,
@@ -71,9 +71,11 @@ public class CorporAIteService
         switch (extension)
         {
             case ".docx":
-                return bytes.ConvertDocxToText();
+                return bytes.ConvertDocxToLines();
             case ".csv":
                 return bytes.ConvertCsvToList();
+            case ".pdf":
+                return bytes.ConvertPdfToLines();
             default:
                 throw new NotSupportedException($"Unsupported file extension: {extension}");
         }

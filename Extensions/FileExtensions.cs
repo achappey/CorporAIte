@@ -1,16 +1,53 @@
 
 using System.Globalization;
 using System.Text;
+using System.Text.RegularExpressions;
 using CsvHelper;
 using CsvHelper.Configuration;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
+using iText.Kernel.Pdf;
+using iText.Kernel.Pdf.Canvas.Parser;
+using iText.Kernel.Pdf.Canvas.Parser.Listener;
+
 
 namespace CorporAIte.Extensions
 {
     public static class FileExtensions
     {
-        public static List<string> ConvertDocxToText(this byte[] docxBytes)
+
+        public static List<string> ConvertPdfToLines(this byte[] pdfBytes)
+        {
+            using var stream = new MemoryStream(pdfBytes);
+            using var pdfReader = new PdfReader(stream);
+            using var pdfDocument = new PdfDocument(pdfReader);
+
+            var paragraphs = new List<string>();
+
+            for (int pageNum = 1; pageNum <= pdfDocument.GetNumberOfPages(); pageNum++)
+            {
+                var page = pdfDocument.GetPage(pageNum);
+                var strategy = new LocationTextExtractionStrategy();
+                var pageText = PdfTextExtractor.GetTextFromPage(page, strategy);
+
+                var regex = new Regex(@"(?<=\r\n)(?=[A-Z0-9])");
+                var rawParagraphs = regex.Split(pageText);
+
+                foreach (var rawParagraph in rawParagraphs)
+                {
+                    string paragraph = rawParagraph.Trim();
+
+                    if (!string.IsNullOrWhiteSpace(paragraph))
+                    {
+                        paragraphs.Add(paragraph);
+                    }
+                }
+            }
+
+            return paragraphs;
+        }
+
+        public static List<string> ConvertDocxToLines(this byte[] docxBytes)
         {
             var result = new List<string>();
 
