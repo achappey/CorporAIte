@@ -14,7 +14,7 @@ public class SharePointService
     private static readonly TimeSpan CACHE_EXPIRATION_TIME = TimeSpan.FromDays(1);
     private static readonly object _cacheLock = new object();
 
-    private static Dictionary<string, (List<byte[]>, DateTime)> _vectorCache = new Dictionary<string, (List<byte[]>, DateTime)>();
+    private static Dictionary<string, (List<(byte[] ByteArray, DateTime LastModified)>, DateTime)> _vectorCache = new Dictionary<string, (List<(byte[] ByteArray, DateTime LastModified)>, DateTime)>();
     private static readonly object _vectorCacheLock = new object();
 
     private static Dictionary<string, (List<string>, DateTime)> _pageCache = new Dictionary<string, (List<string>, DateTime)>();
@@ -201,22 +201,20 @@ public class SharePointService
             return fileBytes;
         }
     }
-
-    public async Task<List<string>> GetSupportedFilesInFolderAsync(string siteUrl, string folderPath, List<string> supportedExtensions)
+    public async Task<List<(string ServerRelativeUrl, DateTime LastModified)>> GetSupportedFilesInFolderAsync(string siteUrl, string folderPath, List<string> supportedExtensions)
     {
         using (var clientContext = GetContext(siteUrl))
         {
             var web = clientContext.Web;
             var folder = web.GetFolderByServerRelativeUrl(folderPath);
-            var supportedFiles = new List<string>();
+            var supportedFiles = new List<(string, DateTime)>();
 
             await RetrieveSupportedFilesRecursively(clientContext, folder, supportedFiles, supportedExtensions);
             return supportedFiles;
         }
     }
 
-
-    private async Task RetrieveSupportedFilesRecursively(ClientContext clientContext, Folder folder, List<string> supportedFiles, List<string> supportedExtensions)
+    private async Task RetrieveSupportedFilesRecursively(ClientContext clientContext, Folder folder, List<(string, DateTime)> supportedFiles, List<string> supportedExtensions)
     {
         clientContext.Load(folder, a => a.Files, a => a.Folders);
         await clientContext.ExecuteQueryRetryAsync();
@@ -226,18 +224,17 @@ public class SharePointService
 
         foreach (var file in filteredFiles)
         {
-            clientContext.Load(file, a => a.ServerRelativeUrl);
+            clientContext.Load(file, a => a.ServerRelativeUrl, a => a.TimeLastModified);
             await clientContext.ExecuteQueryRetryAsync();
-            supportedFiles.Add(file.ServerRelativeUrl);
+            supportedFiles.Add((file.ServerRelativeUrl, file.TimeLastModified));
         }
-
     }
 
-    public async Task<List<byte[]>> GetFilesByExtensionFromFolder(string siteUrl, string folderUrl, string extension, string startsWith = "")
+    public async Task<List<(byte[] ByteArray, DateTime LastModified)>> GetFilesByExtensionFromFolder(string siteUrl, string folderUrl, string extension, string startsWith = "")
     {
         string cacheKey = $"GetFilesByExtensionFromFolder:{siteUrl}:{folderUrl}:{extension}:{startsWith}";
 
-        (List<byte[]>, DateTime) cachedValue;
+        (List<(byte[] ByteArray, DateTime LastModified)>, DateTime) cachedValue;
         lock (_vectorCacheLock)
         {
             if (_vectorCache.TryGetValue(cacheKey, out cachedValue))
@@ -255,7 +252,7 @@ public class SharePointService
             }
         }
 
-        List<byte[]> byteArrays = new List<byte[]>();
+        List<(byte[] ByteArray, DateTime LastModified)> byteArrays = new List<(byte[] ByteArray, DateTime LastModified)>();
 
         using (var clientContext = GetContext(siteUrl))
         {
@@ -279,7 +276,7 @@ public class SharePointService
                 using (var memoryStream = new MemoryStream())
                 {
                     fileStream.Value.CopyTo(memoryStream);
-                    byteArrays.Add(memoryStream.ToArray());
+                    byteArrays.Add((memoryStream.ToArray(), file.TimeLastModified));
                 }
             }
         }
@@ -302,8 +299,8 @@ public class SharePointService
 
     public async Task UploadFileToSharePointAsync(byte[] fileBytes, string siteUrl, string folderUrl, string fileName)
     {
-
-        int blockSize = 2097152;
+        int blockSize = 2 * 1024 * 1024;
+        //  int blockSize = 2097152;
 
         // Create a client context object for the SharePoint site
         using (var context = GetContext(siteUrl))

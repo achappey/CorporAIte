@@ -43,18 +43,18 @@ public class SharePointAIService
     }
 
 
-    public async Task<List<byte[]>> GetAiFilesForFile(string folderPath, string file)
+    public async Task<List<(byte[] ByteArray,  DateTime LastModified)>> GetAiFilesForFile(string folderPath, string file)
     {
         return await _sharePointService.GetFilesByExtensionFromFolder(this._siteUrl, this._folderUrl, ".ai", MakeValidSharePointFileName(folderPath + Path.GetFileNameWithoutExtension(file)));
     }
 
 
-    public async Task<List<byte[]>> CalculateAndUploadEmbeddingsAsync(string folderPath, string fileName, List<string> lines)
+    public async Task<List<(byte[] ByteArray,  DateTime LastModified)>> CalculateAndUploadEmbeddingsAsync(string folderPath, string fileName, List<string> lines)
     {
         const int maxBatchSize = 2000;
         int batchSize = Math.Min(maxBatchSize, lines.Count);
         int suffix = 1;
-        List<byte[]> uploadedFiles = new List<byte[]>();
+        List<(byte[] ByteArray,  DateTime LastModified)> uploadedFiles = new List<(byte[] ByteArray,  DateTime LastModified)>();
 
         while (lines.Any())
         {
@@ -65,7 +65,7 @@ public class SharePointAIService
                 string fileNameWithSuffix = MakeValidSharePointFileName($"{folderPath}{Path.GetFileNameWithoutExtension(fileName)}-{suffix}") + ".ai";
                 await _sharePointService.UploadFileToSharePointAsync(embeddings, this._siteUrl, this._folderUrl, fileNameWithSuffix);
 
-                uploadedFiles.Add(embeddings);
+                uploadedFiles.Add((embeddings, DateTime.Now));
                 lines = lines.Skip(batchSize).ToList();
                 suffix++;
                 batchSize = Math.Min(maxBatchSize, lines.Count);

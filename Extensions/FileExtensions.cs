@@ -5,10 +5,12 @@ using System.Text.RegularExpressions;
 using CsvHelper;
 using CsvHelper.Configuration;
 using DocumentFormat.OpenXml.Packaging;
-using DocumentFormat.OpenXml.Wordprocessing;
+using W = DocumentFormat.OpenXml.Wordprocessing;
 using iText.Kernel.Pdf;
 using iText.Kernel.Pdf.Canvas.Parser;
 using iText.Kernel.Pdf.Canvas.Parser.Listener;
+using DocumentFormat.OpenXml.Presentation;
+using A = DocumentFormat.OpenXml.Drawing;
 
 
 namespace CorporAIte.Extensions
@@ -47,6 +49,38 @@ namespace CorporAIte.Extensions
             return paragraphs;
         }
 
+        public static List<string> ConvertPptxToLines(this byte[] pptxBytes)
+        {
+            using var stream = new MemoryStream(pptxBytes);
+            using var presentationDoc = PresentationDocument.Open(stream, false);
+
+            var paragraphs = new List<string>();
+
+            PresentationPart presentationPart = presentationDoc.PresentationPart;
+            if (presentationPart != null)
+            {
+                foreach (SlideId slideId in presentationPart.Presentation.SlideIdList)
+                {
+                    SlidePart slidePart = (SlidePart)presentationPart.GetPartById(slideId.RelationshipId);
+
+                    foreach (Shape shape in slidePart.Slide.Descendants<Shape>())
+                    {
+                        foreach (A.Paragraph paragraph in shape.Descendants<A.Paragraph>())
+                        {
+                            string paragraphText = string.Join(" ", paragraph.Descendants<A.Text>().Select(t => t.Text));
+
+                            if (!string.IsNullOrEmpty(paragraphText))
+                            {
+                                paragraphs.Add(paragraphText);
+                            }
+                        }
+                    }
+                }
+            }
+
+            return paragraphs;
+        }
+
         public static List<string> ConvertDocxToLines(this byte[] docxBytes)
         {
             var result = new List<string>();
@@ -56,17 +90,17 @@ namespace CorporAIte.Extensions
                 using (var wordDocument = WordprocessingDocument.Open(memoryStream, false))
                 {
                     var body = wordDocument.MainDocumentPart.Document.Body;
-                    var paragraphs = body.Descendants<Paragraph>();
+                    var paragraphs = body.Descendants<W.Paragraph>();
 
 
                     foreach (var paragraph in paragraphs)
                     {
                         var sb = new StringBuilder();
-                        var runs = paragraph.Elements<Run>();
+                        var runs = paragraph.Elements<W.Run>();
 
                         foreach (var run in runs)
                         {
-                            var textElements = run.Elements<Text>();
+                            var textElements = run.Elements<W.Text>();
                             var text = string.Join(string.Empty, textElements.Select(t => t.Text));
                             sb.Append(text);
                         }
@@ -79,6 +113,29 @@ namespace CorporAIte.Extensions
                     }
 
                     return result;
+                }
+            }
+        }
+
+        public static List<string> ConvertTxtToList(this byte[] bytes)
+        {
+            using (var memoryStream = new MemoryStream(bytes))
+            {
+                using (var streamReader = new StreamReader(memoryStream, Encoding.UTF8))
+                {
+                    List<string> lines = new List<string>();
+
+                    string line;
+                    while ((line = streamReader.ReadLine()) != null)
+                    {
+                        if (!string.IsNullOrEmpty(line))
+                        {
+                            lines.Add(line);
+                        }
+
+                    }
+
+                    return lines;
                 }
             }
         }

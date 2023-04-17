@@ -14,7 +14,7 @@ public class CorporAIteService
 
     private readonly IMapper _mapper;
 
-    private readonly List<string> supportedExtensions = new List<string> { ".aspx", ".docx", ".csv", ".pdf" };
+    private readonly List<string> supportedExtensions = new List<string> { ".aspx", ".docx", ".csv", ".pdf", ".pptx", ".txt" };
 
     public CorporAIteService(ILogger<CorporAIteService> logger,
     SharePointService sharePointService,
@@ -29,14 +29,14 @@ public class CorporAIteService
         _mapper = mapper;
     }
 
-    public async Task<List<byte[]>> CalculateFolderEmbeddingsAsync(string siteUrl, string folderPath)
+    public async Task<List<(byte[] ByteArray,  DateTime LastModified)>> CalculateFolderEmbeddingsAsync(string siteUrl, string folderPath)
     {
         var supportedFiles = await _sharePointService.GetSupportedFilesInFolderAsync(siteUrl, folderPath, this.supportedExtensions);
 
         var tasks = supportedFiles.Select(async file =>
         {
-            var lines = await GetLinesAsync(siteUrl, file);
-            return await this._sharePointAIService.CalculateAndUploadEmbeddingsAsync(folderPath, file, lines);
+            var lines = await GetLinesAsync(siteUrl, file.ServerRelativeUrl);
+            return await this._sharePointAIService.CalculateAndUploadEmbeddingsAsync(folderPath, file.ServerRelativeUrl, lines);
         });
 
         var results = await Task.WhenAll(tasks);
@@ -45,7 +45,7 @@ public class CorporAIteService
     }
 
 
-    public async Task<List<byte[]>> CalculateEmbeddingsAsync(string siteUrl, string folderPath, string fileName)
+    public async Task<List<(byte[] ByteArray,  DateTime LastModified)>> CalculateEmbeddingsAsync(string siteUrl, string folderPath, string fileName)
     {
         var lines = await GetLinesAsync(siteUrl, Path.Combine(folderPath, fileName));
         return await this._sharePointAIService.CalculateAndUploadEmbeddingsAsync(folderPath, fileName, lines);
@@ -76,6 +76,10 @@ public class CorporAIteService
                 return bytes.ConvertCsvToList();
             case ".pdf":
                 return bytes.ConvertPdfToLines();
+            case ".pptx":
+                return bytes.ConvertPptxToLines();
+            case ".txt":
+                return bytes.ConvertTxtToList();
             default:
                 throw new NotSupportedException($"Unsupported file extension: {extension}");
         }
@@ -96,16 +100,16 @@ public class CorporAIteService
             // Process the files concurrently
             var fileTasks = files.Select(async file =>
             {
-                var aiFiles = await this._sharePointAIService.GetAiFilesForFile(folder, file);
+                var aiFiles = await this._sharePointAIService.GetAiFilesForFile(folder, Path.GetFileName( file.ServerRelativeUrl));
 
-                var lines = await GetLinesAsync(siteUrl, file);
+                var lines = await GetLinesAsync(siteUrl, file.ServerRelativeUrl);
 
-                if (!aiFiles.Any())
+                if (!aiFiles.Any() || aiFiles.First().LastModified < file.LastModified)
                 {
-                    aiFiles = await this._sharePointAIService.CalculateAndUploadEmbeddingsAsync(folder, file, lines);
+                    aiFiles = await this._sharePointAIService.CalculateAndUploadEmbeddingsAsync(folder, file.ServerRelativeUrl, lines);
                 }
 
-                var scores = _openAIService.CompareEmbeddings(queryEmbedding, aiFiles);
+                var scores = _openAIService.CompareEmbeddings(queryEmbedding, aiFiles.Select(a => a.ByteArray).ToList());
 
                 return lines.Select((line, index) => new { Text = line, Score = scores.ElementAt(index) });
             });
