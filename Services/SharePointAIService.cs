@@ -45,7 +45,7 @@ public class SharePointAIService
 
     public async Task<List<(byte[] ByteArray,  DateTime LastModified)>> GetAiFilesForFile(string folderPath, string file)
     {
-        return await _sharePointService.GetFilesByExtensionFromFolder(this._siteUrl, this._folderUrl, ".ai", MakeValidSharePointFileName(folderPath + Path.GetFileNameWithoutExtension(file)));
+        return await _sharePointService.GetFilesByExtensionFromFolder(this._siteUrl, this._folderUrl, ".ai", MakeValidSharePointFileName(folderPath + Path.GetFileName(file)));
     }
 
 
@@ -62,7 +62,7 @@ public class SharePointAIService
             {
                 List<string> currentBatch = lines.Take(batchSize).ToList();
                 byte[] embeddings = await _openAIService.CalculateEmbeddingAsync(currentBatch);
-                string fileNameWithSuffix = MakeValidSharePointFileName($"{folderPath}{Path.GetFileNameWithoutExtension(fileName)}-{suffix}") + ".ai";
+                string fileNameWithSuffix = MakeValidSharePointFileName($"{folderPath}{Path.GetFileName(fileName)}-{suffix}") + ".ai";
                 await _sharePointService.UploadFileToSharePointAsync(embeddings, this._siteUrl, this._folderUrl, fileNameWithSuffix);
 
                 uploadedFiles.Add((embeddings, DateTime.Now));
