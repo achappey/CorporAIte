@@ -208,7 +208,7 @@ public class SharePointService
         }
     }
 
-    private async Task RetrieveSupportedFilesRecursively(ClientContext clientContext, Folder folder, List<(string, DateTime)> supportedFiles, List<string> supportedExtensions)
+    private async Task RetrieveSupportedFilesRecursively(ClientContext clientContext, Folder folder, List<(string, DateTime)> supportedFiles, List<string> supportedExtensions, bool includeSubfolders = true)
     {
         clientContext.Load(folder, a => a.Files, a => a.Folders);
         await clientContext.ExecuteQueryRetryAsync();
@@ -222,7 +222,16 @@ public class SharePointService
             await clientContext.ExecuteQueryRetryAsync();
             supportedFiles.Add((file.ServerRelativeUrl, file.TimeLastModified));
         }
+
+        if (includeSubfolders)
+        {
+            foreach (var subfolder in folder.Folders)
+            {
+                await RetrieveSupportedFilesRecursively(clientContext, subfolder, supportedFiles, supportedExtensions, includeSubfolders);
+            }
+        }
     }
+
 
     public async Task<List<(byte[] ByteArray, DateTime LastModified)>> GetFilesByExtensionFromFolder(string siteUrl, string folderUrl, string extension, string startsWith = "")
     {
