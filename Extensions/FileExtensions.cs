@@ -18,6 +18,27 @@ namespace CorporAIte.Extensions
     public static class FileExtensions
     {
 
+
+        public static List<string> ConvertFileContentToList(this byte[] bytes, string extension)
+        {
+            switch (extension)
+            {
+                case ".docx":
+                    return bytes.ConvertDocxToLines();
+                case ".csv":
+                    return bytes.ConvertCsvToList();
+                case ".pdf":
+                    return bytes.ConvertPdfToLines();
+                case ".pptx":
+                    return bytes.ConvertPptxToLines();
+                case ".txt":
+                    return bytes.ConvertTxtToList();
+                default:
+                    throw new NotSupportedException($"Unsupported file extension: {extension}");
+            }
+        }
+
+
         public static List<string> ConvertPdfToLines(this byte[] pdfBytes)
         {
             using var stream = new MemoryStream(pdfBytes);

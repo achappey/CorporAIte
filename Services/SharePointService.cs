@@ -29,7 +29,7 @@ public class SharePointService
         this._cacheService = cacheService;
     }
 
-    private string BaseUrl
+    public string BaseUrl
     {
         get
         {
@@ -109,7 +109,7 @@ public class SharePointService
 
         if (pageParagraphs == null)
         {
-
+            pageParagraphs = new List<string>();
 
             using (var context = GetContext(siteUrl))
             {
@@ -121,27 +121,34 @@ public class SharePointService
 
                 if (listItem["ContentTypeId"].ToString().StartsWith("0x0101009D1CB255DA76424F860D91F20E6C4118"))
                 {
-                    string htmlContent = listItem["CanvasContent1"].ToString();
-                    var htmlDoc = new HtmlDocument();
-                    htmlDoc.LoadHtml(htmlContent);
-
-                    var paragraphs = htmlDoc.DocumentNode.SelectNodes("//p");
-                    if (paragraphs != null)
+                    if (listItem["CanvasContent1"] != null)
                     {
-                        foreach (var paragraph in paragraphs)
-                        {
-                            var text = paragraph.InnerText.Trim();
+                        string htmlContent = listItem["CanvasContent1"].ToString();
+                        var htmlDoc = new HtmlDocument();
+                        htmlDoc.LoadHtml(htmlContent);
 
-                            if (!string.IsNullOrEmpty(text))
+                        var paragraphs = htmlDoc.DocumentNode.SelectNodes("//p");
+                        if (paragraphs != null)
+                        {
+                            foreach (var paragraph in paragraphs)
                             {
-                                pageParagraphs.Add(text);
+                                if (paragraph.InnerText != null)
+                                {
+                                    var text = paragraph.InnerText.Trim();
+
+                                    if (!string.IsNullOrEmpty(text))
+                                    {
+                                        pageParagraphs.Add(text);
+                                    }
+
+                                }
+
                             }
 
+                            _cacheService.Set(cacheKey, pageParagraphs);
+
+
                         }
-
-                        _cacheService.Set(cacheKey, pageParagraphs);
-
-
                     }
 
 
@@ -204,6 +211,7 @@ public class SharePointService
             var supportedFiles = new List<(string, DateTime)>();
 
             await RetrieveSupportedFilesRecursively(clientContext, folder, supportedFiles, supportedExtensions);
+
             return supportedFiles;
         }
     }
@@ -223,13 +231,13 @@ public class SharePointService
             supportedFiles.Add((file.ServerRelativeUrl, file.TimeLastModified));
         }
 
-  /*      if (includeSubfolders)
-        {
-            foreach (var subfolder in folder.Folders)
+        /*    if (includeSubfolders)
             {
-                await RetrieveSupportedFilesRecursively(clientContext, subfolder, supportedFiles, supportedExtensions, includeSubfolders);
-            }
-        }*/
+                foreach (var subfolder in folder.Folders)
+                {
+                    await RetrieveSupportedFilesRecursively(clientContext, subfolder, supportedFiles, supportedExtensions, includeSubfolders);
+                }
+            }*/
     }
 
 

@@ -1,3 +1,4 @@
+using System.Text;
 using AutoMapper;
 using CorporAIte.Extensions;
 using CorporAIte.Models;
@@ -41,6 +42,12 @@ public class CorporAIteService
         var tasks = supportedFiles.Select(async file =>
         {
             var lines = await GetLinesAsync(siteUrl, file.ServerRelativeUrl);
+
+            if (lines == null || !lines.Any())
+            {
+                return Enumerable.Empty<(byte[] ByteArray, DateTime LastModified)>();
+            }
+
             return await this._sharePointAIService.CalculateAndUploadEmbeddingsAsync(folderPath, file.ServerRelativeUrl, lines);
         });
 
@@ -48,6 +55,7 @@ public class CorporAIteService
 
         return results.SelectMany(x => x).ToList();
     }
+
 
 
     public async Task<List<(byte[] ByteArray, DateTime LastModified)>> CalculateEmbeddingsAsync(string siteUrl, string folderPath, string fileName)
@@ -76,76 +84,83 @@ public class CorporAIteService
 
             default:
                 byte[] bytes = await _sharePointService.DownloadFileFromSharePointAsync(siteUrl, file);
-                return ConvertFileContentToList(bytes, extension);
-        }
-    }
-
-    private List<string> ConvertFileContentToList(byte[] bytes, string extension)
-    {
-        switch (extension)
-        {
-            case ".docx":
-                return bytes.ConvertDocxToLines();
-            case ".csv":
-                return bytes.ConvertCsvToList();
-            case ".pdf":
-                return bytes.ConvertPdfToLines();
-            case ".pptx":
-                return bytes.ConvertPptxToLines();
-            case ".txt":
-                return bytes.ConvertTxtToList();
-            default:
-                throw new NotSupportedException($"Unsupported file extension: {extension}");
+                return bytes.ConvertFileContentToList(extension);
         }
     }
 
     private async Task<ChatMessage> ChatWithDataFolderAsync(List<string> folders, Chat chat)
     {
-        var queryEmbedding = await _openAIService.CalculateEmbeddingAsync(chat.ChatHistory.Last(t => t.Role == "user").Content);
+        var queryEmbedding = await _openAIService.CalculateEmbeddingAsync(chat.ChatHistory.Last(t => t.Role == "user").Content).ConfigureAwait(false);
 
         // Process the folders concurrently
-        var folderTasks = folders.Select(async folder =>
-        {
-            var siteUrl = this._sharePointService.ExtractSiteServerRelativeUrl(folder);
-
-            // Get the supported files in the folder
-            var files = await _sharePointService.GetSupportedFilesInFolderAsync(siteUrl, folder, this.supportedExtensions);
-
-            // Process the files concurrently
-            var fileTasks = files.Select(async file =>
-            {
-                var aiFiles = await this._sharePointAIService.GetAiFilesForFile(folder, Path.GetFileName(file.ServerRelativeUrl));
-
-                var lines = await GetLinesAsync(siteUrl, file.ServerRelativeUrl);
-
-                if (!aiFiles.Any() || aiFiles.First().LastModified < file.LastModified)
-                {
-                    aiFiles = await this._sharePointAIService.CalculateAndUploadEmbeddingsAsync(folder, file.ServerRelativeUrl, lines);
-                }
-
-                var scores = _openAIService.CompareEmbeddings(queryEmbedding, aiFiles.Select(a => a.ByteArray).ToList());
-
-                return lines.Select((line, index) => new { Text = line, Score = scores.ElementAt(index) });
-            });
-
-            // Wait for all file tasks to complete and concatenate the results
-            return (await Task.WhenAll(fileTasks)).SelectMany(r => r).ToList();
-        });
-
-        // Wait for all folder tasks to complete and concatenate the results
-        var allResults = (await Task.WhenAll(folderTasks)).SelectMany(r => r as IEnumerable<dynamic>).ToList();
+        var allResults = await ProcessFoldersAsync(folders, queryEmbedding).ConfigureAwait(false);
 
         var topResults = allResults
             .OrderByDescending(result => result.Score)
             .Take(200)
             .ToList();
 
-        return await ChatWithBestContext(topResults, chat);
+        return await ChatWithBestContext(topResults, chat).ConfigureAwait(false);
+    }
+
+    private async Task<List<dynamic>> ProcessFoldersAsync(List<string> folders, byte[] queryEmbedding)
+    {
+        var folderTasks = folders.Select(async folder =>
+        {
+            var siteUrl = this._sharePointService.ExtractSiteServerRelativeUrl(folder);
+
+            // Get the supported files in the folder
+            var files = await _sharePointService.GetSupportedFilesInFolderAsync(siteUrl, folder, this.supportedExtensions).ConfigureAwait(false);
+
+            // Process the files concurrently
+            return await ProcessFilesAsync(folder, siteUrl, files, queryEmbedding).ConfigureAwait(false);
+        });
+
+        // Wait for all folder tasks to complete and concatenate the results
+        return (await Task.WhenAll(folderTasks)).SelectMany(r => r as IEnumerable<dynamic>).ToList();
+    }
+
+    private async Task<List<dynamic>> ProcessFilesAsync(string folder, string siteUrl, List<(string ServerRelativeUrl, DateTime LastModified)> files, byte[] queryEmbedding)
+    {
+        var fileTasks = files.Select(async file =>
+        {
+            var aiFiles = await this._sharePointAIService.GetAiFilesForFile(folder, Path.GetFileName(file.ServerRelativeUrl)).ConfigureAwait(false);
+
+            var lines = await GetLinesAsync(siteUrl, file.ServerRelativeUrl).ConfigureAwait(false);
+
+            if (lines == null || !lines.Any())
+            {
+                return Enumerable.Empty<dynamic>();
+            }
+
+            if (aiFiles == null || !aiFiles.Any() || aiFiles.First().LastModified < file.LastModified)
+            {
+                aiFiles = await this._sharePointAIService.CalculateAndUploadEmbeddingsAsync(folder, file.ServerRelativeUrl, lines).ConfigureAwait(false);
+            }
+
+            if (aiFiles == null || !aiFiles.Any())
+            {
+                return Enumerable.Empty<dynamic>();
+            }
+
+            var scores = _openAIService.CompareEmbeddings(queryEmbedding, aiFiles.Select(a => a.ByteArray).ToList());
+
+            return lines.Select((line, index) => new
+            {
+                Path = file.ServerRelativeUrl,
+                Text = line,
+                Score = scores.ElementAt(index)
+            });
+        });
+
+        // Wait for all file tasks to complete and concatenate the results
+        return (await Task.WhenAll(fileTasks)).SelectMany(r => r as IEnumerable<dynamic>).ToList();
     }
 
     private async Task<ChatMessage> ChatWithBestContext(List<dynamic> topResults, Chat chat)
     {
-        var contextQuery = string.Join(" ", topResults.Select(a => a.Text));
+        var uniquePaths = string.Join(", ", topResults.Select(a => this._sharePointService.BaseUrl + a.Path).Distinct());
+        var contextQuery = uniquePaths + " " + string.Join(" ", topResults.Select(a => a.Text));
 
         while (!string.IsNullOrEmpty(contextQuery))
         {
@@ -163,7 +178,8 @@ public class CorporAIteService
                 if (topResultsCount > 1)
                 {
                     topResults = topResults.Take(topResultsCount / 2).ToList();
-                    contextQuery = string.Join(" ", topResults.Select(a => a.Text));
+                    uniquePaths = string.Join(", ", topResults.Select(a => a.Path).Distinct());
+                    contextQuery = uniquePaths + " " + string.Join(" ", topResults.Select(a => a.Text));
                     await Task.Delay(500);
                 }
                 else
@@ -175,6 +191,7 @@ public class CorporAIteService
 
         throw new Exception("Failed to chat with context.");
     }
+
 
     public async Task<ChatMessage> ChatAsync(Chat chat)
     {
