@@ -67,6 +67,40 @@ public class SharePointService
         return authManager.GetACSAppOnlyContext(this.ToTenantUrl(url), this._clientId, this._clientSecret);
     }
 
+
+    public async Task<string> ReadUrlFromFileAsync(string siteUrl, string pageUrl)
+    {
+        // Connect to the SharePoint site using the ClientContext.
+        using (var context = GetContext(siteUrl))
+        {
+            var file = context.Web.GetFileByServerRelativeUrl(pageUrl);
+            context.Load(file);
+            await context.ExecuteQueryAsync();
+
+            // Read the content of the .url file.
+            ClientResult<Stream> streamResult = file.OpenBinaryStream();
+            await context.ExecuteQueryAsync();
+
+            using (var memoryStream = new MemoryStream())
+            {
+                streamResult.Value.CopyTo(memoryStream);
+                memoryStream.Position = 0;
+                using (var reader = new StreamReader(memoryStream))
+                {
+                    string urlFileContent = await reader.ReadToEndAsync();
+
+                    // Extract the URL from the file content.
+                    string urlKey = "URL=";
+                    int startIndex = urlFileContent.IndexOf(urlKey) + urlKey.Length;
+                    int endIndex = urlFileContent.IndexOf("\r\n", startIndex);
+                    if (endIndex == -1) endIndex = urlFileContent.Length;
+                    string url = urlFileContent.Substring(startIndex, endIndex - startIndex);
+                    return url;
+                }
+            }
+        }
+    }
+
     public async Task<List<string>> GetSharePointPageTextAsync(string siteUrl, string pageUrl)
     {
         var cacheKey = "GetSharePointPageTextAsync" + pageUrl;

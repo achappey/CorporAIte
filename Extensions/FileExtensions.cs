@@ -11,7 +11,7 @@ using iText.Kernel.Pdf.Canvas.Parser;
 using iText.Kernel.Pdf.Canvas.Parser.Listener;
 using DocumentFormat.OpenXml.Presentation;
 using A = DocumentFormat.OpenXml.Drawing;
-
+using HtmlAgilityPack;
 
 namespace CorporAIte.Extensions
 {
@@ -138,6 +138,37 @@ namespace CorporAIte.Extensions
                     return lines;
                 }
             }
+        }
+
+        public static async Task<List<string>> ConvertPageToList(this HttpClient httpClient, string url)
+        {
+            // Download the HTML content of the provided URL.
+            var htmlContent = await httpClient.GetStringAsync(url);
+
+            // Load the HTML content into HtmlAgilityPack's HtmlDocument.
+            var htmlDocument = new HtmlDocument();
+            htmlDocument.LoadHtml(htmlContent);
+
+            // Extract the main paragraphs.
+            var paragraphs = new List<string>();
+            var paragraphNodes = htmlDocument.DocumentNode.SelectNodes("//p");
+
+            if (paragraphNodes != null)
+            {
+                foreach (var paragraphNode in paragraphNodes)
+                {
+                    // Add the inner text of each paragraph to the list.
+                    var result = paragraphNode.InnerText.Trim();
+
+                    if (!string.IsNullOrEmpty(result))
+                    {
+                        paragraphs.Add(result);
+                    }
+
+                }
+            }
+
+            return paragraphs;
         }
 
         public static List<string> ConvertCsvToList(this byte[] csvBytes)

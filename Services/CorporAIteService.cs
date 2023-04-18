@@ -14,12 +14,16 @@ public class CorporAIteService
 
     private readonly IMapper _mapper;
 
-    private readonly List<string> supportedExtensions = new List<string> { ".aspx", ".docx", ".csv", ".pdf", ".pptx", ".txt" };
+    private readonly List<string> supportedExtensions = new List<string> { ".aspx",
+    ".docx", ".csv", ".pdf", ".pptx", ".txt", ".url" };
+
+    private readonly HttpClient _httpClient;
 
     public CorporAIteService(ILogger<CorporAIteService> logger,
     SharePointService sharePointService,
     SharePointAIService sharePointAIService,
     AIService openAIService,
+    HttpClient httpClient,
     IMapper mapper)
     {
         _logger = logger;
@@ -27,6 +31,7 @@ public class CorporAIteService
         _sharePointAIService = sharePointAIService;
         _openAIService = openAIService;
         _mapper = mapper;
+        _httpClient = httpClient;
     }
 
     public async Task<List<(byte[] ByteArray, DateTime LastModified)>> CalculateFolderEmbeddingsAsync(string siteUrl, string folderPath)
@@ -45,7 +50,7 @@ public class CorporAIteService
     }
 
 
-    public async Task<List<(byte[] ByteArray,  DateTime LastModified)>> CalculateEmbeddingsAsync(string siteUrl, string folderPath, string fileName)
+    public async Task<List<(byte[] ByteArray, DateTime LastModified)>> CalculateEmbeddingsAsync(string siteUrl, string folderPath, string fileName)
     {
         var lines = await GetLinesAsync(siteUrl, Path.Combine(folderPath, fileName));
         return await this._sharePointAIService.CalculateAndUploadEmbeddingsAsync(folderPath, fileName, lines);
@@ -53,16 +58,25 @@ public class CorporAIteService
 
     private async Task<List<string>> GetLinesAsync(string siteUrl, string file)
     {
+        if (string.IsNullOrEmpty(siteUrl) || string.IsNullOrEmpty(file))
+        {
+            throw new ArgumentNullException("SiteUrl or file cannot be null or empty.");
+        }
+
         string extension = Path.GetExtension(file).ToLowerInvariant();
 
-        if (extension == ".aspx")
+        switch (extension)
         {
-            return await _sharePointService.GetSharePointPageTextAsync(siteUrl, file);
-        }
-        else
-        {
-            byte[] bytes = await _sharePointService.DownloadFileFromSharePointAsync(siteUrl, file);
-            return ConvertFileContentToList(bytes, extension);
+            case ".aspx":
+                return await _sharePointService.GetSharePointPageTextAsync(siteUrl, file);
+
+            case ".url":
+                var url = await _sharePointService.ReadUrlFromFileAsync(siteUrl, file);
+                return await this._httpClient.ConvertPageToList(url);
+
+            default:
+                byte[] bytes = await _sharePointService.DownloadFileFromSharePointAsync(siteUrl, file);
+                return ConvertFileContentToList(bytes, extension);
         }
     }
 
@@ -100,7 +114,7 @@ public class CorporAIteService
             // Process the files concurrently
             var fileTasks = files.Select(async file =>
             {
-                var aiFiles = await this._sharePointAIService.GetAiFilesForFile(folder, Path.GetFileName( file.ServerRelativeUrl));
+                var aiFiles = await this._sharePointAIService.GetAiFilesForFile(folder, Path.GetFileName(file.ServerRelativeUrl));
 
                 var lines = await GetLinesAsync(siteUrl, file.ServerRelativeUrl);
 

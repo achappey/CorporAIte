@@ -12,6 +12,7 @@ builder.Services.AddSingleton<CorporAIteService>();
 builder.Services.AddSingleton<AIService>();
 builder.Services.AddSingleton<SharePointService>();
 builder.Services.AddSingleton<SharePointAIService>();
+builder.Services.AddHttpClient();
 
 // Configure in-memory cache
 builder.Services.AddMemoryCache();
