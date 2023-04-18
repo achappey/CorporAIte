@@ -223,13 +223,13 @@ public class SharePointService
             supportedFiles.Add((file.ServerRelativeUrl, file.TimeLastModified));
         }
 
-        if (includeSubfolders)
+  /*      if (includeSubfolders)
         {
             foreach (var subfolder in folder.Folders)
             {
                 await RetrieveSupportedFilesRecursively(clientContext, subfolder, supportedFiles, supportedExtensions, includeSubfolders);
             }
-        }
+        }*/
     }
 
 
