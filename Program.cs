@@ -13,6 +13,10 @@ builder.Services.AddSingleton<AIService>();
 builder.Services.AddSingleton<SharePointService>();
 builder.Services.AddSingleton<SharePointAIService>();
 
+// Configure in-memory cache
+builder.Services.AddMemoryCache();
+builder.Services.AddSingleton<ICacheService, InMemoryCacheService>();
+
 // Configure AutoMapper
 var mapperConfig = new MapperConfiguration(mc =>
 {

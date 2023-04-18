@@ -29,7 +29,7 @@ public class CorporAIteService
         _mapper = mapper;
     }
 
-    public async Task<List<(byte[] ByteArray,  DateTime LastModified)>> CalculateFolderEmbeddingsAsync(string siteUrl, string folderPath)
+    public async Task<List<(byte[] ByteArray, DateTime LastModified)>> CalculateFolderEmbeddingsAsync(string siteUrl, string folderPath)
     {
         var supportedFiles = await _sharePointService.GetSupportedFilesInFolderAsync(siteUrl, folderPath, this.supportedExtensions);
 

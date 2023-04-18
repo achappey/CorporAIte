@@ -19,13 +19,14 @@ public class SharePointService
 
     private static Dictionary<string, (List<string>, DateTime)> _pageCache = new Dictionary<string, (List<string>, DateTime)>();
     private static readonly object _pageCacheLock = new object();
+    private readonly ICacheService _cacheService;
 
-
-    public SharePointService(AppConfig config)
+    public SharePointService(AppConfig config, ICacheService cacheService)
     {
         this._tenantName = config.SharePoint.TenantName;
         this._clientId = config.SharePoint.ClientId;
         this._clientSecret = config.SharePoint.ClientSecret;
+        this._cacheService = cacheService;
     }
 
     private string BaseUrl
@@ -68,70 +69,49 @@ public class SharePointService
 
     public async Task<List<string>> GetSharePointPageTextAsync(string siteUrl, string pageUrl)
     {
-        var cacheKey = pageUrl;
+        var cacheKey = "GetSharePointPageTextAsync" + pageUrl;
 
-        (List<string>, DateTime) cachedValue;
-        lock (_pageCacheLock)
+        List<string> pageParagraphs = _cacheService.Get<List<string>>(cacheKey);
+
+        if (pageParagraphs == null)
         {
-            if (_pageCache.TryGetValue(cacheKey, out cachedValue))
+
+
+            using (var context = GetContext(siteUrl))
             {
-                if (DateTime.UtcNow - cachedValue.Item2 < CACHE_EXPIRATION_TIME)
+                var file = context.Web.GetFileByServerRelativeUrl(pageUrl);
+                context.Load(file, f => f.ListItemAllFields);
+                await context.ExecuteQueryRetryAsync();
+
+                var listItem = file.ListItemAllFields;
+
+                if (listItem["ContentTypeId"].ToString().StartsWith("0x0101009D1CB255DA76424F860D91F20E6C4118"))
                 {
-                    // Item found in cache and is not expired, return it
-                    return cachedValue.Item1;
-                }
-                else
-                {
-                    // Item found in cache but has expired, remove it
-                    _pageCache.Remove(cacheKey);
-                }
-            }
-        }
+                    string htmlContent = listItem["CanvasContent1"].ToString();
+                    var htmlDoc = new HtmlDocument();
+                    htmlDoc.LoadHtml(htmlContent);
 
-        List<string> pageParagraphs = new List<string>();
-
-        using (var context = GetContext(siteUrl))
-        {
-            var file = context.Web.GetFileByServerRelativeUrl(pageUrl);
-            context.Load(file, f => f.ListItemAllFields);
-            await context.ExecuteQueryRetryAsync();
-
-            var listItem = file.ListItemAllFields;
-
-            if (listItem["ContentTypeId"].ToString().StartsWith("0x0101009D1CB255DA76424F860D91F20E6C4118"))
-            {
-                string htmlContent = listItem["CanvasContent1"].ToString();
-                var htmlDoc = new HtmlDocument();
-                htmlDoc.LoadHtml(htmlContent);
-
-                var paragraphs = htmlDoc.DocumentNode.SelectNodes("//p");
-                if (paragraphs != null)
-                {
-                    foreach (var paragraph in paragraphs)
+                    var paragraphs = htmlDoc.DocumentNode.SelectNodes("//p");
+                    if (paragraphs != null)
                     {
-                        var text = paragraph.InnerText.Trim();
-
-                        if (!string.IsNullOrEmpty(text))
+                        foreach (var paragraph in paragraphs)
                         {
-                            pageParagraphs.Add(text);
+                            var text = paragraph.InnerText.Trim();
+
+                            if (!string.IsNullOrEmpty(text))
+                            {
+                                pageParagraphs.Add(text);
+                            }
+
                         }
+
+                        _cacheService.Set(cacheKey, pageParagraphs);
+
 
                     }
 
-                    lock (_pageCacheLock)
-                    {
-                        if (_pageCache.Count >= MAX_CACHE_SIZE)
-                        {
-                            // Cache is full, remove the least recently used item
-                            var lruItem = _cache.OrderBy(x => x.Value.Item2).First();
-                            _cache.Remove(lruItem.Key);
-                        }
 
-                        _pageCache[cacheKey] = (pageParagraphs, DateTime.UtcNow);
-                    }
                 }
-
-
             }
         }
 
@@ -140,67 +120,47 @@ public class SharePointService
 
     public async Task<byte[]> DownloadFileFromSharePointAsync(string siteUrl, string filePath)
     {
-        var cacheKey = siteUrl + filePath;
+        var cacheKey = "DownloadFileFromSharePointAsync" + siteUrl + filePath;
 
-        (byte[], DateTime) cachedValue;
-        lock (_cacheLock)
+        byte[] fileBytes = _cacheService.Get<byte[]>(cacheKey);
+
+        if (fileBytes == null)
         {
-            if (_cache.TryGetValue(cacheKey, out cachedValue))
+
+            // Create a client context object for the SharePoint site
+            using (var context = GetContext(siteUrl))
             {
-                if (DateTime.UtcNow - cachedValue.Item2 < CACHE_EXPIRATION_TIME)
+                // Get the file object from SharePoint by path
+                var file = context.Web.GetFileByServerRelativeUrl(filePath);
+
+                // Load the file object
+                context.Load(file);
+
+                // Execute the query to load the file object
+                await context.ExecuteQueryRetryAsync();
+
+                // Download the file from SharePoint and convert it to a byte array
+
+
+                var fileStream = file.OpenBinaryStream();
+
+                await context.ExecuteQueryRetryAsync();
+
+                using (var memoryStream = new MemoryStream())
                 {
-                    // Item found in cache and is not expired, return it
-                    return cachedValue.Item1;
+                    await fileStream.Value.CopyToAsync(memoryStream);
+                    fileBytes = memoryStream.ToArray();
                 }
-                else
-                {
-                    // Item found in cache but has expired, remove it
-                    _cache.Remove(cacheKey);
-                }
+
+                // Add the file bytes to the cache
+                _cacheService.Set(cacheKey, fileBytes);
+
             }
         }
 
-        // Create a client context object for the SharePoint site
-        using (var context = GetContext(siteUrl))
-        {
-            // Get the file object from SharePoint by path
-            var file = context.Web.GetFileByServerRelativeUrl(filePath);
-
-            // Load the file object
-            context.Load(file);
-
-            // Execute the query to load the file object
-            await context.ExecuteQueryRetryAsync();
-
-            // Download the file from SharePoint and convert it to a byte array
-            byte[] fileBytes;
-
-            var fileStream = file.OpenBinaryStream();
-
-            await context.ExecuteQueryRetryAsync();
-
-            using (var memoryStream = new MemoryStream())
-            {
-                await fileStream.Value.CopyToAsync(memoryStream);
-                fileBytes = memoryStream.ToArray();
-            }
-
-            // Add the file bytes to the cache
-            lock (_cacheLock)
-            {
-                if (_cache.Count >= MAX_CACHE_SIZE)
-                {
-                    // Cache is full, remove the least recently used item
-                    var lruItem = _cache.OrderBy(x => x.Value.Item2).First();
-                    _cache.Remove(lruItem.Key);
-                }
-
-                _cache[cacheKey] = (fileBytes, DateTime.UtcNow);
-            }
-
-            return fileBytes;
-        }
+        return fileBytes;
     }
+
     public async Task<List<(string ServerRelativeUrl, DateTime LastModified)>> GetSupportedFilesInFolderAsync(string siteUrl, string folderPath, List<string> supportedExtensions)
     {
         using (var clientContext = GetContext(siteUrl))
@@ -234,64 +194,41 @@ public class SharePointService
     {
         string cacheKey = $"GetFilesByExtensionFromFolder:{siteUrl}:{folderUrl}:{extension}:{startsWith}";
 
-        (List<(byte[] ByteArray, DateTime LastModified)>, DateTime) cachedValue;
-        lock (_vectorCacheLock)
+        List<(byte[] ByteArray, DateTime LastModified)> byteArrays = _cacheService.Get<List<(byte[] ByteArray, DateTime LastModified)>>(cacheKey);
+
+        if (byteArrays == null)
         {
-            if (_vectorCache.TryGetValue(cacheKey, out cachedValue))
+
+            byteArrays = new List<(byte[] ByteArray, DateTime LastModified)>();
+
+            using (var clientContext = GetContext(siteUrl))
             {
-                if (DateTime.UtcNow - cachedValue.Item2 < CACHE_EXPIRATION_TIME)
-                {
-                    // Item found in cache and is not expired, return it
-                    return cachedValue.Item1;
-                }
-                else
-                {
-                    // Item found in cache but has expired, remove it
-                    _cache.Remove(cacheKey);
-                }
-            }
-        }
-
-        List<(byte[] ByteArray, DateTime LastModified)> byteArrays = new List<(byte[] ByteArray, DateTime LastModified)>();
-
-        using (var clientContext = GetContext(siteUrl))
-        {
-            var web = clientContext.Web;
-            var folder = web.GetFolderByServerRelativeUrl(folderUrl);
-            clientContext.Load(folder, a => a.Files);
-            await clientContext.ExecuteQueryRetryAsync();
-
-            var filteredFiles = folder.Files.Where(file =>
-                file.Name.StartsWith(startsWith) &&
-                Path.GetExtension(file.Name).ToLowerInvariant() == extension).ToList();
-
-            foreach (var file in filteredFiles)
-            {
-                clientContext.Load(file);
+                var web = clientContext.Web;
+                var folder = web.GetFolderByServerRelativeUrl(folderUrl);
+                clientContext.Load(folder, a => a.Files);
                 await clientContext.ExecuteQueryRetryAsync();
 
-                var fileStream = file.OpenBinaryStream();
-                await clientContext.ExecuteQueryRetryAsync();
+                var filteredFiles = folder.Files.Where(file =>
+                    file.Name.StartsWith(startsWith) &&
+                    Path.GetExtension(file.Name).ToLowerInvariant() == extension).ToList();
 
-                using (var memoryStream = new MemoryStream())
+                foreach (var file in filteredFiles)
                 {
-                    fileStream.Value.CopyTo(memoryStream);
-                    byteArrays.Add((memoryStream.ToArray(), file.TimeLastModified));
+                    clientContext.Load(file);
+                    await clientContext.ExecuteQueryRetryAsync();
+
+                    var fileStream = file.OpenBinaryStream();
+                    await clientContext.ExecuteQueryRetryAsync();
+
+                    using (var memoryStream = new MemoryStream())
+                    {
+                        fileStream.Value.CopyTo(memoryStream);
+                        byteArrays.Add((memoryStream.ToArray(), file.TimeLastModified));
+                    }
                 }
             }
-        }
 
-        // Add the file bytes to the cache
-        lock (_vectorCacheLock)
-        {
-            if (_vectorCache.Count >= MAX_CACHE_SIZE)
-            {
-                // Cache is full, remove the least recently used item
-                var lruItem = _cache.OrderBy(x => x.Value.Item2).First();
-                _cache.Remove(lruItem.Key);
-            }
-
-            _vectorCache[cacheKey] = (byteArrays, DateTime.UtcNow);
+            _cacheService.Set(cacheKey, byteArrays);
         }
 
         return byteArrays;
@@ -431,24 +368,6 @@ public class SharePointService
         return siteServerRelativeUrl;
     }
 
-    public string ExtractServerRelativeFolderPath(string serverRelativeFullPath)
-    {
-        if (string.IsNullOrWhiteSpace(serverRelativeFullPath))
-        {
-            throw new ArgumentException("Server relative URL must not be null or empty.");
-        }
-
-        int lastSlashIndex = serverRelativeFullPath.LastIndexOf('/');
-
-        if (lastSlashIndex == -1)
-        {
-            throw new ArgumentException("Invalid server-relative URL.");
-        }
-
-        string directoryPath = serverRelativeFullPath.Substring(0, lastSlashIndex);
-
-        return directoryPath;
-    }
 
 
 }
