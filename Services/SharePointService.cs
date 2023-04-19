@@ -231,14 +231,33 @@ public class SharePointService
             supportedFiles.Add((file.ServerRelativeUrl, file.TimeLastModified));
         }
 
-        /*    if (includeSubfolders)
-            {
-                foreach (var subfolder in folder.Folders)
-                {
-                    await RetrieveSupportedFilesRecursively(clientContext, subfolder, supportedFiles, supportedExtensions, includeSubfolders);
-                }
-            }*/
+        /*      if (includeSubfolders)
+              {
+                  foreach (var subfolder in folder.Folders)
+                  {
+                      await RetrieveSupportedFilesRecursively(clientContext, subfolder, supportedFiles, supportedExtensions, includeSubfolders);
+                  }
+              }*/
     }
+
+    public async Task<(string ServerRelativeUrl, DateTime LastModified)?> GetFileInfoAsync(string siteUrl, string filePath)
+    {
+        // Assuming you have already set up the SharePoint ClientContext
+        using (var ctx = GetContext(siteUrl))
+        {
+            var file = ctx.Web.GetFileByServerRelativeUrl(filePath);
+            ctx.Load(file, f => f.ServerRelativeUrl, f => f.TimeLastModified);
+            await ctx.ExecuteQueryAsync();
+
+            if (file != null)
+            {
+                return (file.ServerRelativeUrl, file.TimeLastModified);
+            }
+        }
+
+        return null;
+    }
+
 
 
     public async Task<List<(byte[] ByteArray, DateTime LastModified)>> GetFilesByExtensionFromFolder(string siteUrl, string folderUrl, string extension, string startsWith = "")

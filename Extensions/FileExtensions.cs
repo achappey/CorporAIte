@@ -17,8 +17,31 @@ namespace CorporAIte.Extensions
 {
     public static class FileExtensions
     {
+        public static string GetParentFolderFromServerRelativeUrl(this string serverRelativeUrl)
+        {
+            var parentFolderPath = serverRelativeUrl.Substring(0, serverRelativeUrl.LastIndexOf('/'));
+            return parentFolderPath;
+        }
 
+        public static (List<string> folders, List<string> files) SeparateInputPaths(this List<string> inputPaths)
+        {
+            var folders = new List<string>();
+            var files = new List<string>();
 
+            foreach (var path in inputPaths)
+            {
+                if (Path.HasExtension(path))
+                {
+                    files.Add(path);
+                }
+                else
+                {
+                    folders.Add(path);
+                }
+            }
+
+            return (folders, files);
+        }
         public static List<string> ConvertFileContentToList(this byte[] bytes, string extension)
         {
             switch (extension)

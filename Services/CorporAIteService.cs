@@ -1,4 +1,3 @@
-using System.Text;
 using AutoMapper;
 using CorporAIte.Extensions;
 using CorporAIte.Models;
@@ -88,12 +87,20 @@ public class CorporAIteService
         }
     }
 
-    private async Task<ChatMessage> ChatWithDataFolderAsync(List<string> folders, Chat chat)
+    private async Task<ChatMessage> ChatWithDataFolderAsync(List<string> inputPaths, Chat chat)
     {
         var queryEmbedding = await _openAIService.CalculateEmbeddingAsync(chat.ChatHistory.Last(t => t.Role == "user").Content).ConfigureAwait(false);
 
+        // Separate input paths into files and folders
+        var (folders, files) = inputPaths.SeparateInputPaths();
+
         // Process the folders concurrently
-        var allResults = await ProcessFoldersAsync(folders, queryEmbedding).ConfigureAwait(false);
+        var folderResults = await ProcessFoldersAsync(folders, queryEmbedding).ConfigureAwait(false);
+
+        // Process the single files concurrently
+        var fileResults = await ProcessSingleFilesAsync(files, queryEmbedding).ConfigureAwait(false);
+
+        var allResults = folderResults.Concat(fileResults).ToList();
 
         var topResults = allResults
             .OrderByDescending(result => result.Score)
@@ -101,6 +108,30 @@ public class CorporAIteService
             .ToList();
 
         return await ChatWithBestContext(topResults, chat).ConfigureAwait(false);
+    }
+
+    
+    private async Task<List<dynamic>> ProcessSingleFilesAsync(List<string> fileUrls, byte[] queryEmbedding)
+    {
+        var fileTasks = fileUrls.Select(async fileUrl =>
+        {
+            // Extract folder and siteUrl from the file URL
+            var folder = fileUrl.GetParentFolderFromServerRelativeUrl();
+            var siteUrl = this._sharePointService.ExtractSiteServerRelativeUrl(folder);
+
+            var fileInfo = await _sharePointService.GetFileInfoAsync(siteUrl, fileUrl).ConfigureAwait(false);
+            if (fileInfo == null)
+            {
+                return Enumerable.Empty<dynamic>();
+            }
+
+            var (serverRelativeUrl, lastModified) = fileInfo.Value;
+
+            return await ProcessFilesAsync(folder, siteUrl, new List<(string ServerRelativeUrl, DateTime LastModified)> { (serverRelativeUrl, lastModified) }, queryEmbedding).ConfigureAwait(false);
+        });
+
+        // Wait for all file tasks to complete and concatenate the results
+        return (await Task.WhenAll(fileTasks)).SelectMany(r => r as IEnumerable<dynamic>).ToList();
     }
 
     private async Task<List<dynamic>> ProcessFoldersAsync(List<string> folders, byte[] queryEmbedding)
