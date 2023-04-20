@@ -95,10 +95,10 @@ public class CorporAIteService
         var (folders, files) = inputPaths.SeparateInputPaths();
 
         // Process the folders concurrently
-        var folderResults = await ProcessFoldersAsync(folders, queryEmbedding).ConfigureAwait(false);
+        var folderResults = await ProcessFoldersAsync(folders, queryEmbedding, chat.ForceVectorGeneration).ConfigureAwait(false);
 
         // Process the single files concurrently
-        var fileResults = await ProcessSingleFilesAsync(files, queryEmbedding).ConfigureAwait(false);
+        var fileResults = await ProcessSingleFilesAsync(files, queryEmbedding, chat.ForceVectorGeneration).ConfigureAwait(false);
 
         var allResults = folderResults.Concat(fileResults).ToList();
 
@@ -111,7 +111,7 @@ public class CorporAIteService
     }
 
     
-    private async Task<List<dynamic>> ProcessSingleFilesAsync(List<string> fileUrls, byte[] queryEmbedding)
+    private async Task<List<dynamic>> ProcessSingleFilesAsync(List<string> fileUrls, byte[] queryEmbedding, bool forceVectorGeneration)
     {
         var fileTasks = fileUrls.Select(async fileUrl =>
         {
@@ -127,14 +127,14 @@ public class CorporAIteService
 
             var (serverRelativeUrl, lastModified) = fileInfo.Value;
 
-            return await ProcessFilesAsync(folder, siteUrl, new List<(string ServerRelativeUrl, DateTime LastModified)> { (serverRelativeUrl, lastModified) }, queryEmbedding).ConfigureAwait(false);
+            return await ProcessFilesAsync(folder, siteUrl, new List<(string ServerRelativeUrl, DateTime LastModified)> { (serverRelativeUrl, lastModified) }, queryEmbedding, forceVectorGeneration).ConfigureAwait(false);
         });
 
         // Wait for all file tasks to complete and concatenate the results
         return (await Task.WhenAll(fileTasks)).SelectMany(r => r as IEnumerable<dynamic>).ToList();
     }
 
-    private async Task<List<dynamic>> ProcessFoldersAsync(List<string> folders, byte[] queryEmbedding)
+    private async Task<List<dynamic>> ProcessFoldersAsync(List<string> folders, byte[] queryEmbedding, bool forceVectorGeneration)
     {
         var folderTasks = folders.Select(async folder =>
         {
@@ -144,14 +144,14 @@ public class CorporAIteService
             var files = await _sharePointService.GetSupportedFilesInFolderAsync(siteUrl, folder, this.supportedExtensions).ConfigureAwait(false);
 
             // Process the files concurrently
-            return await ProcessFilesAsync(folder, siteUrl, files, queryEmbedding).ConfigureAwait(false);
+            return await ProcessFilesAsync(folder, siteUrl, files, queryEmbedding, forceVectorGeneration).ConfigureAwait(false);
         });
 
         // Wait for all folder tasks to complete and concatenate the results
         return (await Task.WhenAll(folderTasks)).SelectMany(r => r as IEnumerable<dynamic>).ToList();
     }
 
-    private async Task<List<dynamic>> ProcessFilesAsync(string folder, string siteUrl, List<(string ServerRelativeUrl, DateTime LastModified)> files, byte[] queryEmbedding)
+    private async Task<List<dynamic>> ProcessFilesAsync(string folder, string siteUrl, List<(string ServerRelativeUrl, DateTime LastModified)> files, byte[] queryEmbedding, bool forceVectorGeneration)
     {
         var fileTasks = files.Select(async file =>
         {
@@ -164,7 +164,7 @@ public class CorporAIteService
                 return Enumerable.Empty<dynamic>();
             }
 
-            if (aiFiles == null || !aiFiles.Any() || aiFiles.First().LastModified < file.LastModified)
+            if (((aiFiles == null || !aiFiles.Any() && forceVectorGeneration) || (aiFiles.Any() && aiFiles.First().LastModified < file.LastModified)))
             {
                 aiFiles = await this._sharePointAIService.CalculateAndUploadEmbeddingsAsync(folder, file.ServerRelativeUrl, lines).ConfigureAwait(false);
             }

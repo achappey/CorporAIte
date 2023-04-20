@@ -11,6 +11,8 @@ namespace CorporAIte.Models
 
         public List<SourceFolder>? SourceFolders { get; set; }
 
+        public bool ForceVectorGeneration { get; set; }
+
         public Chat()
         {
             ChatHistory = new List<ChatMessage>();

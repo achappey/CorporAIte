@@ -212,7 +212,7 @@ public class SharePointService
 
             await RetrieveSupportedFilesRecursively(clientContext, folder, supportedFiles, supportedExtensions);
 
-            return supportedFiles;
+            return supportedFiles.Where(a => !a.Item1.StartsWith(folderPath + "/Forms/")).ToList();
         }
     }
 
@@ -231,13 +231,13 @@ public class SharePointService
             supportedFiles.Add((file.ServerRelativeUrl, file.TimeLastModified));
         }
 
-        /*      if (includeSubfolders)
+              if (includeSubfolders)
               {
                   foreach (var subfolder in folder.Folders)
                   {
                       await RetrieveSupportedFilesRecursively(clientContext, subfolder, supportedFiles, supportedExtensions, includeSubfolders);
                   }
-              }*/
+              }
     }
 
     public async Task<(string ServerRelativeUrl, DateTime LastModified)?> GetFileInfoAsync(string siteUrl, string filePath)
