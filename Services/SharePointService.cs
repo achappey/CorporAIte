@@ -158,67 +158,6 @@ public class SharePointService
         return pageParagraphs;
     }
 
-
-    public async Task<List<string>> GetSharePointPageTextAsync2(string siteUrl, string pageUrl)
-    {
-        var cacheKey = "GetSharePointPageTextAsync" + pageUrl;
-
-        List<string> pageParagraphs = _cacheService.Get<List<string>>(cacheKey);
-
-        if (pageParagraphs == null)
-        {
-            pageParagraphs = new List<string>();
-            using (var context = GetContext(siteUrl))
-            {
-                var file = context.Web.GetFileByServerRelativeUrl(pageUrl);
-                //       context.Load(file, f => f.ListItemAllFields);
-                context.Load(file, f => f.ListItemAllFields, f => f.ListItemAllFields["ContentTypeId"], f => f.ListItemAllFields["CanvasContent1"]);
-
-                await context.ExecuteQueryRetryAsync();
-
-                var listItem = file.ListItemAllFields;
-
-                if (listItem["ContentTypeId"].ToString().StartsWith("0x0101009D1CB255DA76424F860D91F20E6C4118"))
-                {
-                    if (listItem["CanvasContent1"] != null)
-                    {
-                        string htmlContent = listItem["CanvasContent1"].ToString();
-                        var htmlDoc = new HtmlDocument();
-                        htmlDoc.LoadHtml(htmlContent);
-
-                        var paragraphs = htmlDoc.DocumentNode.SelectNodes("//p");
-                        if (paragraphs != null)
-                        {
-                            foreach (var paragraph in paragraphs)
-                            {
-                                if (paragraph.InnerText != null)
-                                {
-                                    var text = paragraph.InnerText.Trim();
-
-                                    if (!string.IsNullOrEmpty(text))
-                                    {
-                                        pageParagraphs.Add(text);
-                                    }
-
-                                }
-
-                            }
-
-                            _cacheService.Set(cacheKey, pageParagraphs);
-
-
-                        }
-                    }
-
-
-                }
-            }
-
-        }
-
-        return pageParagraphs;
-    }
-
     public async Task<byte[]> DownloadFileFromSharePointAsync(string siteUrl, string filePath)
     {
         var cacheKey = "DownloadFileFromSharePointAsync" + siteUrl + filePath;
