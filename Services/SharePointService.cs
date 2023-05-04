@@ -103,6 +103,64 @@ public class SharePointService
 
     public async Task<List<string>> GetSharePointPageTextAsync(string siteUrl, string pageUrl)
     {
+        var cacheKey = $"GetSharePointPageTextAsync{pageUrl}";
+        var pageParagraphs = _cacheService.Get<List<string>>(cacheKey);
+
+        if (pageParagraphs is null)
+        {
+            using (var context = GetContext(siteUrl))
+            {
+                var file = context.Web.GetFileByServerRelativeUrl(pageUrl);
+                context.Load(file, f => f.ListItemAllFields, f => f.ListItemAllFields["ContentTypeId"], f => f.ListItemAllFields["CanvasContent1"]);
+                await context.ExecuteQueryRetryAsync().ConfigureAwait(false);
+
+                var listItem = file.ListItemAllFields;
+
+                if (listItem["ContentTypeId"].ToString().StartsWith("0x0101009D1CB255DA76424F860D91F20E6C4118"))
+                {
+                    if (listItem["CanvasContent1"] is not null)
+                    {
+                        string htmlContent = listItem["CanvasContent1"].ToString();
+                        var htmlDoc = new HtmlDocument();
+                        htmlDoc.LoadHtml(htmlContent);
+
+                        pageParagraphs = ExtractTextFromHtmlParagraphs(htmlDoc);
+                        _cacheService.Set(cacheKey, pageParagraphs);
+                    }
+                }
+            }
+        }
+
+        return pageParagraphs;
+    }
+
+    private List<string> ExtractTextFromHtmlParagraphs(HtmlDocument htmlDoc)
+    {
+        var paragraphs = htmlDoc.DocumentNode.SelectNodes("//p");
+        var pageParagraphs = new List<string>();
+
+        if (paragraphs is not null)
+        {
+            foreach (var paragraph in paragraphs)
+            {
+                if (paragraph.InnerText is not null)
+                {
+                    var text = paragraph.InnerText.Trim();
+
+                    if (!string.IsNullOrEmpty(text))
+                    {
+                        pageParagraphs.Add(text);
+                    }
+                }
+            }
+        }
+
+        return pageParagraphs;
+    }
+
+
+    public async Task<List<string>> GetSharePointPageTextAsync2(string siteUrl, string pageUrl)
+    {
         var cacheKey = "GetSharePointPageTextAsync" + pageUrl;
 
         List<string> pageParagraphs = _cacheService.Get<List<string>>(cacheKey);
@@ -110,11 +168,12 @@ public class SharePointService
         if (pageParagraphs == null)
         {
             pageParagraphs = new List<string>();
-
             using (var context = GetContext(siteUrl))
             {
                 var file = context.Web.GetFileByServerRelativeUrl(pageUrl);
-                context.Load(file, f => f.ListItemAllFields);
+                //       context.Load(file, f => f.ListItemAllFields);
+                context.Load(file, f => f.ListItemAllFields, f => f.ListItemAllFields["ContentTypeId"], f => f.ListItemAllFields["CanvasContent1"]);
+
                 await context.ExecuteQueryRetryAsync();
 
                 var listItem = file.ListItemAllFields;
@@ -154,6 +213,7 @@ public class SharePointService
 
                 }
             }
+
         }
 
         return pageParagraphs;
@@ -231,13 +291,15 @@ public class SharePointService
             supportedFiles.Add((file.ServerRelativeUrl, file.TimeLastModified));
         }
 
-              if (includeSubfolders)
-              {
-                  foreach (var subfolder in folder.Folders)
-                  {
-                      await RetrieveSupportedFilesRecursively(clientContext, subfolder, supportedFiles, supportedExtensions, includeSubfolders);
-                  }
-              }
+        if (includeSubfolders)
+        {
+            var excludeForms = folder.Folders.Where(a => a.Name != "Forms");
+
+            foreach (var subfolder in excludeForms)
+            {
+                await RetrieveSupportedFilesRecursively(clientContext, subfolder, supportedFiles, supportedExtensions, includeSubfolders);
+            }
+        }
     }
 
     public async Task<(string ServerRelativeUrl, DateTime LastModified)?> GetFileInfoAsync(string siteUrl, string filePath)
@@ -268,7 +330,6 @@ public class SharePointService
 
         if (byteArrays == null)
         {
-
             byteArrays = new List<(byte[] ByteArray, DateTime LastModified)>();
 
             using (var clientContext = GetContext(siteUrl))
@@ -279,8 +340,8 @@ public class SharePointService
                 await clientContext.ExecuteQueryRetryAsync();
 
                 var filteredFiles = folder.Files.Where(file =>
-                    file.Name.StartsWith(startsWith) &&
-                    Path.GetExtension(file.Name).ToLowerInvariant() == extension).ToList();
+                    file.Name.StartsWith(startsWith, StringComparison.OrdinalIgnoreCase) &&
+                    Path.GetExtension(file.Name).Equals(extension, StringComparison.OrdinalIgnoreCase)).ToList();
 
                 foreach (var file in filteredFiles)
                 {
@@ -304,10 +365,10 @@ public class SharePointService
         return byteArrays;
     }
 
+
     public async Task UploadFileToSharePointAsync(byte[] fileBytes, string siteUrl, string folderUrl, string fileName)
     {
-        int blockSize = 2 * 1024 * 1024;
-        //  int blockSize = 2097152;
+        const int blockSize = 2 * 1024 * 1024; // 2 MB
 
         // Create a client context object for the SharePoint site
         using (var context = GetContext(siteUrl))
@@ -315,101 +376,100 @@ public class SharePointService
             // Get the folder object in which to upload the file
             var folder = context.Web.GetFolderByServerRelativeUrl(folderUrl);
 
-            if (fileBytes.Length < 2097152)
+            // Upload file based on its size
+            if (fileBytes.Length <= blockSize)
             {
-                FileCreationInformation fileInfo = new FileCreationInformation
-                {
-                    Content = fileBytes,
-                    Url = fileName,
-                    Overwrite = true
-                };
-
-                folder.Files.Add(fileInfo);
-
-                await context.ExecuteQueryRetryAsync();
+                await UploadSmallFileAsync(context, folder, fileBytes, fileName);
             }
             else
             {
+                await UploadLargeFileAsync(context, folder, fileBytes, fileName, blockSize);
+            }
+        }
+    }
 
-                byte[] buffer = new byte[blockSize];
-                long fileoffset = 0;
-                long totalBytesRead = 0;
-                int bytesRead;
-                byte[] lastBuffer = null;
-                bool first = true;
-                bool last = false;
-                Microsoft.SharePoint.Client.File uploadFile = null;
-                Guid uploadId = Guid.NewGuid();
+    private async Task UploadSmallFileAsync(ClientContext context, Folder folder, byte[] fileBytes, string fileName)
+    {
+        FileCreationInformation fileInfo = new FileCreationInformation
+        {
+            Content = fileBytes,
+            Url = fileName,
+            Overwrite = true
+        };
 
-                using (MemoryStream stream = new MemoryStream(fileBytes))
+        folder.Files.Add(fileInfo);
+        await context.ExecuteQueryRetryAsync();
+    }
+
+    private async Task UploadLargeFileAsync(ClientContext context, Folder folder, byte[] fileBytes, string fileName, int blockSize)
+    {
+        long fileOffset = 0;
+        long totalBytesRead = 0;
+        bool isFirstSlice = true;
+        Microsoft.SharePoint.Client.File uploadFile = null;
+        Guid uploadId = Guid.NewGuid();
+
+        using (MemoryStream stream = new MemoryStream(fileBytes))
+        {
+            int bytesRead;
+            byte[] buffer = new byte[blockSize];
+
+            // Read and upload file slices
+            while ((bytesRead = stream.Read(buffer, 0, buffer.Length)) > 0)
+            {
+                totalBytesRead += bytesRead;
+                bool isLastSlice = totalBytesRead == fileBytes.Length;
+
+                using (MemoryStream sliceStream = new MemoryStream(buffer, 0, bytesRead))
                 {
-                    // Create a new file object and set its properties
-                    while ((bytesRead = stream.Read(buffer, 0, buffer.Length)) > 0)
+                    if (isFirstSlice)
                     {
-                        totalBytesRead = totalBytesRead + bytesRead;
-
-                        if (first)
-                        {
-                            using (MemoryStream contentStream = new MemoryStream())
-                            {
-                                // Add an empty file.
-                                FileCreationInformation fileInfo = new FileCreationInformation();
-                                fileInfo.ContentStream = contentStream;
-                                fileInfo.Url = fileName;
-                                fileInfo.Overwrite = true;
-                                uploadFile = folder.Files.Add(fileInfo);
-
-                                // Start upload by uploading the first slice.
-                                using (MemoryStream s = new MemoryStream(buffer))
-                                {
-                                    // Call the start upload method on the first slice
-                                    var bytesUploaded = uploadFile.StartUpload(uploadId, s);
-                                    await context.ExecuteQueryRetryAsync();
-                                    // fileoffset is the pointer where the next slice will be added
-                                    fileoffset = bytesUploaded.Value;
-                                }
-
-                                // we can only start the upload once
-                                first = false;
-                            }
-                        }
-                        else
-                        {
-                            uploadFile = context.Web.GetFileByServerRelativeUrl(folderUrl + System.IO.Path.AltDirectorySeparatorChar + fileName);
-
-                            using (MemoryStream s = new MemoryStream(buffer))
-                            {
-
-                                if (totalBytesRead == fileBytes.Length)
-                                {
-                                    last = true;
-                                    lastBuffer = new byte[bytesRead];
-                                    Array.Copy(buffer, 0, lastBuffer, 0, bytesRead);
-                                }
-
-                                if (last)
-                                {
-                                    uploadFile = uploadFile.FinishUpload(uploadId, fileoffset, new MemoryStream(lastBuffer));
-                                    await context.ExecuteQueryRetryAsync();
-
-                                    return;
-                                }
-                                else
-                                {
-                                    var bytesUploaded = uploadFile.ContinueUpload(uploadId, fileoffset, s);
-                                    await context.ExecuteQueryRetryAsync();
-                                    fileoffset = bytesUploaded.Value;
-                                }
-
-
-                            }
-                        }
-
+                        uploadFile = UploadFirstSlice(context, folder, fileName, uploadId, sliceStream);
+                        isFirstSlice = false;
+                    }
+                    else if (isLastSlice)
+                    {
+                        await FinishUploadAsync(context, folder.ServerRelativeUrl, fileName, uploadId, fileOffset, sliceStream);
+                    }
+                    else
+                    {
+                        fileOffset = await UploadSliceAsync(context, folder.ServerRelativeUrl, fileName, uploadId, fileOffset, sliceStream);
                     }
                 }
             }
-
         }
+    }
+
+    private Microsoft.SharePoint.Client.File UploadFirstSlice(ClientContext context, Folder folder, string fileName, Guid uploadId, MemoryStream sliceStream)
+    {
+        FileCreationInformation fileInfo = new FileCreationInformation
+        {
+            ContentStream = new MemoryStream(), // Add an empty file
+            Url = fileName,
+            Overwrite = true
+        };
+
+        var uploadFile = folder.Files.Add(fileInfo);
+        uploadFile.StartUpload(uploadId, sliceStream);
+        context.ExecuteQueryRetryAsync();
+
+        return uploadFile;
+    }
+
+    private async Task<long> UploadSliceAsync(ClientContext context, string folderUrl, string fileName, Guid uploadId, long fileOffset, MemoryStream sliceStream)
+    {
+        var uploadFile = context.Web.GetFileByServerRelativeUrl(folderUrl + System.IO.Path.AltDirectorySeparatorChar + fileName);
+        var bytesUploaded = uploadFile.ContinueUpload(uploadId, fileOffset, sliceStream);
+        await context.ExecuteQueryRetryAsync();
+
+        return bytesUploaded.Value;
+    }
+
+    private async Task FinishUploadAsync(ClientContext context, string folderUrl, string fileName, Guid uploadId, long fileOffset, MemoryStream sliceStream)
+    {
+        var uploadFile = context.Web.GetFileByServerRelativeUrl(folderUrl + System.IO.Path.AltDirectorySeparatorChar + fileName);
+        uploadFile.FinishUpload(uploadId, fileOffset, sliceStream);
+        await context.ExecuteQueryRetryAsync();
     }
 
     public string ExtractSiteServerRelativeUrl(string serverRelativeFullPath)

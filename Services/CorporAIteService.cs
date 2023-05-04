@@ -110,7 +110,7 @@ public class CorporAIteService
         return await ChatWithBestContext(topResults, chat).ConfigureAwait(false);
     }
 
-    
+
     private async Task<List<dynamic>> ProcessSingleFilesAsync(List<string> fileUrls, byte[] queryEmbedding, bool forceVectorGeneration)
     {
         var fileTasks = fileUrls.Select(async fileUrl =>
@@ -156,7 +156,6 @@ public class CorporAIteService
         var fileTasks = files.Select(async file =>
         {
             var aiFiles = await this._sharePointAIService.GetAiFilesForFile(folder, Path.GetFileName(file.ServerRelativeUrl)).ConfigureAwait(false);
-
             var lines = await GetLinesAsync(siteUrl, file.ServerRelativeUrl).ConfigureAwait(false);
 
             if (lines == null || !lines.Any())
@@ -238,9 +237,7 @@ public class CorporAIteService
 
     private async Task<ChatMessage> ChatWithFallback(Chat chat)
     {
-        int initialMessageLength = chat.GetLastUserMessageLength();
-
-        while (initialMessageLength > 0)
+        while (chat.ChatHistory.Count > 0)
         {
             try
             {
@@ -248,13 +245,12 @@ public class CorporAIteService
             }
             catch (FormatException)
             {
-                initialMessageLength = chat.ShortenLastUserMessage();
+                chat.ShortenChatHistory();
             }
         }
 
-        throw new InvalidOperationException("The last user message could not be shortened further without success.");
+        throw new InvalidOperationException("The chat history could not be shortened further without success.");
     }
-
     private async Task<ChatMessage> AttemptChatAsync(Chat chat)
     {
         // Prepare chat messages for the OpenAIService

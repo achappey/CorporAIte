@@ -4,24 +4,27 @@ namespace CorporAIte.Extensions
 {
     public static class ChatExtensions
     {
-       
-    public static int GetLastUserMessageLength(this Chat chat)
-    {
-        return chat.ChatHistory.Count > 0 && chat.ChatHistory.Last().Role == "user" ? chat.ChatHistory.Last().Content.Length : 0;
-    }
 
-    public static int ShortenLastUserMessage(this Chat chat)
-    {
-        if (chat.ChatHistory.Count > 0 && chat.ChatHistory.Last().Role == "user" && chat.ChatHistory.Last().Content.Length > 1)
+
+        public static void ShortenChatHistory(this Chat chat)
         {
-            chat.ChatHistory.Last().Content = chat.ChatHistory.Last().Content.Substring(0, chat.ChatHistory.Last().Content.Length / 2);
-            return chat.ChatHistory.Last().Content.Length;
+            int startIndex = chat.ChatHistory[0].Role == "system" ? 1 : 0;
+
+            if (chat.ChatHistory.Count > startIndex + 1)
+            {
+                chat.ChatHistory.RemoveAt(startIndex); // Remove the oldest message in the chat history after the system prompt
+
+                if (chat.ChatHistory.Count > startIndex + 1 && chat.ChatHistory[startIndex].Role == "assistant")
+                {
+                    chat.ChatHistory.RemoveAt(startIndex); // Remove the oldest user message if the first message after the system prompt is from the assistant
+                }
+            }
+            else
+            {
+                throw new InvalidOperationException("The chat history is empty or could not be shortened further.");
+            }
         }
-        else
-        {
-            throw new InvalidOperationException("The last user message is empty or could not be shortened further.");
-        }
-    }
+
 
     }
 }
