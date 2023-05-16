@@ -299,13 +299,16 @@ public class CorporAIteService
     }
 
 
-    public async Task<IEnumerable<Folder>> GetOneDriveFolders(string userId)
+    public async Task<Folders> GetOneDriveFolders(string userId)
     {
         var items = await this._graphService.GetAllFoldersFromRoot(userId);
 
-        return items.Select(a => this._mapper.Map<Folder>(a));
+        return new Folders()
+        {
+            Items = items.Select(a => this._mapper.Map<Folder>(a))
+        };
     }
-    
+
     private async Task<ChatMessage> ChatWithFallback(Chat chat)
     {
         while (chat.ChatHistory.Count > 0)

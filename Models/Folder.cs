@@ -1,6 +1,6 @@
 namespace CorporAIte.Models
 {
- 
+
     public class Folder
     {
 
@@ -9,6 +9,18 @@ namespace CorporAIte.Models
         public string WebUrl { get; set; }
 
         public Folder()
+        {
+        }
+
+
+    }
+
+    public class Folders
+    {
+
+        public IEnumerable<Folder> Items { get; set; }
+
+        public Folders()
         {
         }
 
