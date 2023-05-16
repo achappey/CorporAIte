@@ -19,6 +19,7 @@ public class OneDriveFoldersController : ControllerBase
 
     [HttpGet(Name = "GetOneDriveFolders")]
     [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(Folders))]
+    [Produces("application/json")]
     public async Task<IActionResult> GetOneDriveFolders([FromQuery] string userId)
     {
 

@@ -19,6 +19,7 @@ public class ListChatController : ControllerBase
 
     [HttpPost(Name = "ListChat")]
     [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(Message))]
+    [Produces("application/json")]
     public async Task<IActionResult> ListChat([FromQuery] int chatId)
     {
         try
