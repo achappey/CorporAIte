@@ -78,10 +78,10 @@ public class SharePointAIService
             {
                 BaseUrl = (systemPrompt["Bron"] as FieldUrlValue).Url,
                 Prompt = systemPrompt["Prompt"].ToString(),
-                ForceVectorGeneration = true,
+                ForceVectorGeneration = systemPrompt["Altijdvectorsgenereren"] != null ? bool.Parse(systemPrompt["Altijdvectorsgenereren"].ToString()) : false,
                 Temperature = float.Parse(systemPrompt["Temperatuur"].ToString())
             },
-            SourceFolder = conversation["Title"].ToString(),
+            SourceFolder = conversation["Map"]?.ToString(),
             Messages = messages.Select(a => new Message()
             {
                 Content = a["Bericht"].ToString(),

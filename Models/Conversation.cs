@@ -11,9 +11,9 @@ namespace CorporAIte.Models
 
         public List<Message> Messages { get; set; }
 
-        //public List<SourceFolder>? SourceFolders { get; set; }
-
         public string SourceFolder { get; set; }
+
+        public string Title { get; set; }
 
         public Conversation()
         {
