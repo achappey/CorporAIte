@@ -1,6 +1,9 @@
 using AutoMapper;
+using Azure.Identity;
 using CorporAIte;
 using CorporAIte.Profiles;
+using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+using Microsoft.Identity.Web;
 
 // Configure web application
 var builder = WebApplication.CreateBuilder(args);
@@ -8,8 +11,9 @@ var appConfig = builder.Configuration.Get<AppConfig>();
 
 // Register services
 builder.Services.AddSingleton<AppConfig>(appConfig);
-builder.Services.AddSingleton<CorporAIteService>();
+builder.Services.AddScoped<CorporAIteService>();
 builder.Services.AddSingleton<AIService>();
+builder.Services.AddScoped<GraphService>();
 builder.Services.AddSingleton<SharePointService>();
 builder.Services.AddSingleton<SharePointAIService>();
 builder.Services.AddHttpClient();
@@ -32,6 +36,14 @@ builder.Services.AddControllers();
 // Configure Swagger/OpenAPI
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+
+var microsoft = builder.Services.AddAuthentication(OpenIdConnectDefaults.AuthenticationScheme)
+          .AddMicrosoftIdentityWebApp(builder.Configuration)
+          .EnableTokenAcquisitionToCallDownstreamApi()
+          .AddMicrosoftGraphAppOnly(authenticationProvider => new Microsoft.Graph.GraphServiceClient(new ClientSecretCredential(appConfig.AzureAd.TenantId,
+                appConfig.AzureAd.ClientId,
+                appConfig.AzureAd.ClientSecret)))
+          .AddInMemoryTokenCaches();
 
 // Build the application
 var app = builder.Build();

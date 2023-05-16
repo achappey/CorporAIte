@@ -3,6 +3,10 @@ namespace CorporAIte.Models
 {
     public class Chat
     {
+        public string BaseUrl { get; set; } = "https://fakton.sharepoint.com";
+
+        public int ConversationId { get; set; }
+
         public string System { get; set; }
 
         public float Temperature { get; set; }

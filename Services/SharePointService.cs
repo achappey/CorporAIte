@@ -6,7 +6,6 @@ using PnP.Framework;
 
 public class SharePointService
 {
-    private readonly string _tenantName;
     private readonly string _clientId;
     private readonly string _clientSecret;
     private static Dictionary<string, (byte[], DateTime)> _cache = new Dictionary<string, (byte[], DateTime)>();
@@ -23,50 +22,17 @@ public class SharePointService
 
     public SharePointService(AppConfig config, ICacheService cacheService)
     {
-        this._tenantName = config.SharePoint.TenantName;
         this._clientId = config.SharePoint.ClientId;
         this._clientSecret = config.SharePoint.ClientSecret;
         this._cacheService = cacheService;
     }
 
-    public string BaseUrl
-    {
-        get
-        {
-            return $"https://{this._tenantName}.sharepoint.com";
-        }
-    }
-
-
-    /// <summary>
-    /// Converts a site path to a tenant URL by appending it to the base URL.
-    /// </summary>
-    /// <param name="site">The site path to convert.</param>
-    /// <returns>The tenant URL.</returns>
-    private string ToTenantUrl(string site)
-    {
-        if (string.IsNullOrWhiteSpace(site))
-        {
-            return BaseUrl;
-        }
-
-        if (site.StartsWith("/sites/", StringComparison.OrdinalIgnoreCase))
-        {
-            return $"{BaseUrl}{site}";
-        }
-
-        return $"{BaseUrl}/sites/{site}";
-    }
-
-
-
     public ClientContext GetContext(string url)
     {
         AuthenticationManager authManager = new AuthenticationManager();
 
-        return authManager.GetACSAppOnlyContext(this.ToTenantUrl(url), this._clientId, this._clientSecret);
+        return authManager.GetACSAppOnlyContext(url, this._clientId, this._clientSecret);
     }
-
 
     public async Task<string> ReadUrlFromFileAsync(string siteUrl, string pageUrl)
     {
@@ -158,6 +124,41 @@ public class SharePointService
         return pageParagraphs;
     }
 
+    public async Task<ListItem> GetListItemFromList(string siteUrl, string listTitle, int itemId)
+    {
+        using (var context = GetContext(siteUrl))
+        {
+            var web = context.Web;
+            var list = web.Lists.GetByTitle(listTitle);
+            var listItem = list.GetItemById(itemId);
+
+            // Load the ListItem data
+            context.Load(listItem);
+            await context.ExecuteQueryRetryAsync();
+
+            return listItem;
+        }
+    }
+
+    public async Task<IEnumerable<ListItem>> GetListItemsFromList(string siteUrl, string listTitle, string caml)
+    {
+        using (var context = GetContext(siteUrl))
+        {
+            var web = context.Web;
+            var list = web.Lists.GetByTitle(listTitle);
+            var listItems = list.GetItems(new CamlQuery()
+            {
+                ViewXml = caml
+            });
+
+            // Load the ListItem data
+            context.Load(listItems);
+            await context.ExecuteQueryRetryAsync();
+
+            return listItems;
+        }
+    }
+
     public async Task<byte[]> DownloadFileFromSharePointAsync(string siteUrl, string filePath)
     {
         var cacheKey = "DownloadFileFromSharePointAsync" + siteUrl + filePath;
@@ -214,7 +215,21 @@ public class SharePointService
             return supportedFiles.Where(a => !a.Item1.StartsWith(folderPath + "/Forms/")).ToList();
         }
     }
+    /*
+         public async Task<List<(string ServerRelativeUrl, DateTime LastModified)>> GetSupportedFilesInFolderAsync2(string siteUrl, string folderPath, List<string> supportedExtensions)
+        {
+            using (var clientContext = GetContext2(siteUrl))
+            {
+                var web = clientContext.Web;
+                var folder = web.GetFolderByServerRelativeUrl(folderPath);
+                var supportedFiles = new List<(string, DateTime)>();
 
+                await RetrieveSupportedFilesRecursively(clientContext, folder, supportedFiles, supportedExtensions);
+
+                return supportedFiles.Where(a => !a.Item1.StartsWith(folderPath + "/Forms/")).ToList();
+            }
+        }
+    */
     private async Task RetrieveSupportedFilesRecursively(ClientContext clientContext, Folder folder, List<(string, DateTime)> supportedFiles, List<string> supportedExtensions, bool includeSubfolders = true)
     {
         clientContext.Load(folder, a => a.Files, a => a.Folders);
@@ -418,6 +433,8 @@ public class SharePointService
             throw new ArgumentException("Server relative full path must not be null or empty.");
         }
 
+        return "/" + serverRelativeFullPath.Split('/')[1] + "/"+ serverRelativeFullPath.Split('/')[2];
+/*
         int indexOfSites = serverRelativeFullPath.IndexOf("/sites/", StringComparison.OrdinalIgnoreCase);
 
         if (indexOfSites == -1)
@@ -434,7 +451,7 @@ public class SharePointService
 
         string siteServerRelativeUrl = serverRelativeFullPath.Substring(0, endIndex);
 
-        return siteServerRelativeUrl;
+        return siteServerRelativeUrl;*/
     }
 
 

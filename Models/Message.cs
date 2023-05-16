@@ -3,9 +3,11 @@ namespace CorporAIte.Models
     /// <summary>
     /// Represents a chat message with role and content.
     /// </summary>
-    public class ChatMessage
+    public class Message
     {
+        public int ItemId { get; set; }
 
+        public int ConversationId { get; set; }
 
         /// <summary>
         /// Gets or sets the role of the sender of the chat message.
@@ -20,7 +22,7 @@ namespace CorporAIte.Models
         /// <summary>
         /// Initializes a new instance of the <see cref="ChatMessage"/> class.
         /// </summary>
-        public ChatMessage()
+        public Message()
         {
         }
 
@@ -29,7 +31,7 @@ namespace CorporAIte.Models
         /// </summary>
         /// <param name="role">The role of the sender of the chat message.</param>
         /// <param name="content">The content of the chat message.</param>
-        public ChatMessage(string role, string content)
+        public Message(string role, string content)
         {
             Role = role ?? throw new ArgumentNullException(nameof(role));
             Content = content ?? throw new ArgumentNullException(nameof(content));
