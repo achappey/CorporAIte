@@ -17,7 +17,7 @@ public class CorporAIteService
     private readonly IMapper _mapper;
 
     private readonly List<string> supportedExtensions = new List<string> { ".aspx",
-    ".docx", ".csv", ".pdf", ".pptx", ".txt", ".url" };
+        ".docx", ".csv", ".pdf", ".pptx", ".txt", ".url", ".msg" };
 
     private readonly HttpClient _httpClient;
 
@@ -40,7 +40,7 @@ public class CorporAIteService
 
     public async Task<List<(byte[] ByteArray, DateTime LastModified)>> CalculateFolderEmbeddingsAsync(string siteUrl, string folderPath)
     {
-        var supportedFiles = await _sharePointService.GetSupportedFilesInFolderAsync(siteUrl, folderPath, this.supportedExtensions);
+        var supportedFiles = await _sharePointAIService.GetSupportedFilesInFolderAsync(siteUrl, folderPath, this.supportedExtensions);
 
         var tasks = supportedFiles.Select(async file =>
         {
@@ -83,33 +83,34 @@ public class CorporAIteService
                 var url = await _sharePointService.ReadUrlFromFileAsync(siteUrl, file);
                 return await this._httpClient.ConvertPageToList(url);
 
+            case ".msg":
+                //var url = await _sharePointService.ReadUrlFromFileAsync(siteUrl, file);
+                //return await this._httpClient.ConvertPageToList(url);
+                byte[] mailBytes = await _sharePointService.DownloadFileFromSharePointAsync(siteUrl, file);
+                var mailFile = mailBytes.ConvertFileContentToList(extension);
+
+                var attachments = mailBytes.ExtractAttachments();
+
+                foreach (var attachment in attachments)
+                {
+                    string attachmentExtension = Path.GetExtension(attachment.Item2).ToLowerInvariant();
+
+                    try
+                    {
+                        mailFile.AddRange(attachment.Item1.ConvertFileContentToList(attachmentExtension));
+                    }
+                    catch (NotSupportedException)
+                    {
+
+                    }
+                }
+
+                return mailFile;
+
             default:
                 byte[] bytes = await _sharePointService.DownloadFileFromSharePointAsync(siteUrl, file);
                 return bytes.ConvertFileContentToList(extension);
         }
-    }
-
-    private async Task<ChatMessage> ChatWithDataFolderAsync(List<string> inputPaths, Chat chat)
-    {
-        var queryEmbedding = await _openAIService.CalculateEmbeddingAsync(chat.ChatHistory.Last(t => t.Role == "user").Content).ConfigureAwait(false);
-
-        // Separate input paths into files and folders
-        var (folders, files) = inputPaths.SeparateInputPaths();
-
-        // Process the folders concurrently
-        var folderResults = await ProcessFoldersAsync(chat.BaseUrl, folders, queryEmbedding, chat.ForceVectorGeneration).ConfigureAwait(false);
-
-        // Process the single files concurrently
-        var fileResults = await ProcessSingleFilesAsync(files, queryEmbedding, chat.ForceVectorGeneration).ConfigureAwait(false);
-
-        var allResults = folderResults.Concat(fileResults).ToList();
-
-        var topResults = allResults
-            .OrderByDescending(result => result.Score)
-            .Take(200)
-            .ToList();
-
-        return await ChatWithBestContext(topResults, chat).ConfigureAwait(false);
     }
 
     private async Task<Message> ChatWithDataFolderAsync(List<string> inputPaths, Conversation chat)
@@ -120,7 +121,7 @@ public class CorporAIteService
         var (folders, files) = inputPaths.SeparateInputPaths();
 
         // Process the folders concurrently
-        var folderResults = await ProcessFoldersAsync(chat.SystemPrompt.BaseUrl, folders, queryEmbedding, chat.SystemPrompt.ForceVectorGeneration).ConfigureAwait(false);
+        var folderResults = await ProcessFoldersAsync(folders, queryEmbedding, chat.SystemPrompt.ForceVectorGeneration).ConfigureAwait(false);
 
         // Process the single files concurrently
         var fileResults = await ProcessSingleFilesAsync(files, queryEmbedding, chat.SystemPrompt.ForceVectorGeneration).ConfigureAwait(false);
@@ -129,7 +130,7 @@ public class CorporAIteService
 
         var topResults = allResults
             .OrderByDescending(result => result.Score)
-            .Take(200)
+            .Take(400)
             .ToList();
 
         return await ChatWithBestContext(topResults, chat).ConfigureAwait(false);
@@ -141,9 +142,9 @@ public class CorporAIteService
         {
             // Extract folder and siteUrl from the file URL
             var folder = fileUrl.GetParentFolderFromServerRelativeUrl();
-            var siteUrl = this._sharePointService.ExtractSiteServerRelativeUrl(folder);
+            var siteUrl = fileUrl.GetSiteUrlFromFullUrl();
 
-            var fileInfo = await _sharePointService.GetFileInfoAsync(siteUrl, fileUrl).ConfigureAwait(false);
+            var fileInfo = await _sharePointAIService.GetFileInfoAsync(siteUrl, fileUrl.RemoveBaseUrl()).ConfigureAwait(false);
             if (fileInfo == null)
             {
                 return Enumerable.Empty<dynamic>();
@@ -158,17 +159,19 @@ public class CorporAIteService
         return (await Task.WhenAll(fileTasks)).SelectMany(r => r as IEnumerable<dynamic>).ToList();
     }
 
-    private async Task<List<dynamic>> ProcessFoldersAsync(string baseUrl, List<string> folders, byte[] queryEmbedding, bool forceVectorGeneration)
+    private async Task<List<dynamic>> ProcessFoldersAsync(List<string> folders, byte[] queryEmbedding, bool forceVectorGeneration)
     {
         var folderTasks = folders.Select(async folder =>
         {
-            var siteUrl = this._sharePointService.ExtractSiteServerRelativeUrl(folder);
+            //  var siteUrl = this._sharePointService.ExtractSiteServerRelativeUrl(folder);
+            var siteUrl = folder.GetSiteUrlFromFullUrl();
+            var siteRelative = folder.RemoveBaseUrl();
 
             // Get the supported files in the folder
-            var files = await _sharePointService.GetSupportedFilesInFolderAsync(baseUrl + siteUrl, folder, this.supportedExtensions).ConfigureAwait(false);
+            var files = await _sharePointAIService.GetSupportedFilesInFolderAsync(siteUrl, siteRelative, this.supportedExtensions).ConfigureAwait(false);
 
             // Process the files concurrently
-            return await ProcessFilesAsync(folder, baseUrl + siteUrl, files, queryEmbedding, forceVectorGeneration).ConfigureAwait(false);
+            return await ProcessFilesAsync(folder, siteUrl, files, queryEmbedding, forceVectorGeneration).ConfigureAwait(false);
         });
 
         // Wait for all folder tasks to complete and concatenate the results
@@ -211,44 +214,9 @@ public class CorporAIteService
         return (await Task.WhenAll(fileTasks)).SelectMany(r => r as IEnumerable<dynamic>).ToList();
     }
 
-    private async Task<ChatMessage> ChatWithBestContext(List<dynamic> topResults, Chat chat)
-    {
-        var uniquePaths = string.Join(", ", topResults.Select(a => chat.BaseUrl + a.Path).Distinct());
-        var contextQuery = uniquePaths + " " + string.Join(" ", topResults.Select(a => a.Text));
-
-        while (!string.IsNullOrEmpty(contextQuery))
-        {
-            try
-            {
-                var chatResponse = await _openAIService.ChatWithContextAsync(chat.System + contextQuery,
-                  chat.Temperature,
-                  chat.ChatHistory.Select(a => _mapper.Map<OpenAI.GPT3.ObjectModels.RequestModels.ChatMessage>(a)));
-
-                return _mapper.Map<ChatMessage>(chatResponse);
-            }
-            catch (FormatException ex)
-            {
-                var topResultsCount = topResults.Count();
-                if (topResultsCount > 1)
-                {
-                    topResults = topResults.Take(topResultsCount / 2).ToList();
-                    uniquePaths = string.Join(", ", topResults.Select(a => a.Path).Distinct());
-                    contextQuery = uniquePaths + " " + string.Join(" ", topResults.Select(a => a.Text));
-                    await Task.Delay(500);
-                }
-                else
-                {
-                    throw new Exception("Failed to chat with context.");
-                }
-            }
-        }
-
-        throw new Exception("Failed to chat with context.");
-    }
-
     private async Task<Message> ChatWithBestContext(List<dynamic> topResults, Conversation chat)
     {
-        var uniquePaths = string.Join(", ", topResults.Select(a => chat.SystemPrompt.BaseUrl + a.Path).Distinct());
+        var uniquePaths = string.Join(", ", topResults.Select(a => a.Path).Distinct());
         var contextQuery = uniquePaths + " " + string.Join(" ", topResults.Select(a => a.Text));
 
         while (!string.IsNullOrEmpty(contextQuery))
@@ -285,11 +253,9 @@ public class CorporAIteService
     {
         var chat = await this._sharePointAIService.GetListChat(chatId);
 
-        if (!string.IsNullOrEmpty(chat.SourceFolder))
+        if (chat.Sources.Any())
         {
-            return await ChatWithDataFolderAsync(new List<string>() {
-                chat.SourceFolder
-             }, chat!);
+            return await ChatWithDataFolderAsync(chat.Sources, chat!);
 
         }
         else
@@ -297,7 +263,6 @@ public class CorporAIteService
             return await ChatWithFallback(chat);
         }
     }
-
 
     public async Task<Folders> GetOneDriveFolders(string userId)
     {
@@ -307,39 +272,6 @@ public class CorporAIteService
         {
             Items = items.Select(a => this._mapper.Map<Folder>(a))
         };
-    }
-
-    private async Task<ChatMessage> ChatWithFallback(Chat chat)
-    {
-        while (chat.ChatHistory.Count > 0)
-        {
-            try
-            {
-                return await AttemptChatAsync(chat);
-            }
-            catch (FormatException)
-            {
-                chat.ShortenChatHistory();
-            }
-        }
-
-        throw new InvalidOperationException("The chat history could not be shortened further without success.");
-    }
-
-    private async Task<ChatMessage> AttemptChatAsync(Chat chat)
-    {
-        // Prepare chat messages for the OpenAIService
-        var openAiChatMessages = chat.ChatHistory
-            .Select(message => _mapper.Map<OpenAI.GPT3.ObjectModels.RequestModels.ChatMessage>(message));
-
-        // Chat with context using the OpenAIService
-        var chatResponse = await _openAIService.ChatWithContextAsync(
-            chat.System,
-            chat.Temperature,
-            openAiChatMessages);
-
-        // Map the response to the ChatMessage model
-        return _mapper.Map<ChatMessage>(chatResponse);
     }
 
     private async Task<Message> ChatWithFallback(Conversation chat)

@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using CorporAIte;
+using CorporAIte.Extensions;
 using CorporAIte.Models;
 using Microsoft.SharePoint.Client;
 
@@ -14,11 +15,11 @@ public class SharePointAIService
 
     private readonly string _chatSiteUrl;
     private readonly string _baseSiteUrl;
-
+    private readonly ICacheService _cacheService;
     public SharePointAIService(ILogger<SharePointAIService> logger,
     AIService openAIService,
     SharePointService _sharePoint,
-    AppConfig config)
+    AppConfig config, ICacheService cacheService)
     {
         this._sharePointService = _sharePoint;
         this._vectorSiteUrl = config.SharePoint.AIVectorSiteUrl;
@@ -27,6 +28,7 @@ public class SharePointAIService
         this._baseSiteUrl = config.SharePoint.AIBaseSiteUrl;
         this._openAIService = openAIService;
         this._logger = logger;
+        this._cacheService = cacheService;
     }
 
     private string MakeValidSharePointFileName(string fileName)
@@ -49,9 +51,18 @@ public class SharePointAIService
         return validFileName;
     }
 
+
     public async Task<Conversation> GetListChat(int itemId)
     {
         var conversation = await this._sharePointService.GetListItemFromList(this._baseSiteUrl + this._chatSiteUrl, "Conversaties", itemId);
+        var attachments = await this._sharePointService.GetAttachmentsFromListItem(this._baseSiteUrl + this._chatSiteUrl, "Conversaties", itemId);
+        var sources = attachments.Select(a => this._baseSiteUrl + a.ServerRelativeUrl).ToList();
+
+        if (conversation["Map"] != null)
+        {
+            sources.Add(conversation["Map"].ToString());
+        }
+
         var messages = await this._sharePointService.GetListItemsFromList(this._baseSiteUrl + this._chatSiteUrl, "Berichten", $@"
                 <View>
                     <Query>
@@ -71,17 +82,15 @@ public class SharePointAIService
 
         var systemPrompt = await this._sharePointService.GetListItemFromList(this._baseSiteUrl + this._chatSiteUrl, "Systeem Prompts", lookupId);
 
-
         return new Conversation()
         {
             SystemPrompt = new SystemPrompt()
             {
-                BaseUrl = (systemPrompt["Bron"] as FieldUrlValue).Url,
                 Prompt = systemPrompt["Prompt"].ToString(),
                 ForceVectorGeneration = systemPrompt["Altijdvectorsgenereren"] != null ? bool.Parse(systemPrompt["Altijdvectorsgenereren"].ToString()) : false,
                 Temperature = float.Parse(systemPrompt["Temperatuur"].ToString())
             },
-            SourceFolder = conversation["Map"]?.ToString(),
+            Sources = sources,
             Messages = messages.Select(a => new Message()
             {
                 Content = a["Bericht"].ToString(),
@@ -92,42 +101,70 @@ public class SharePointAIService
 
     public async Task<List<(byte[] ByteArray, DateTime LastModified)>> GetAiFilesForFile(string folderPath, string file)
     {
-        return await _sharePointService.GetFilesByExtensionFromFolder(this._baseSiteUrl + this._vectorSiteUrl, this._vectorFolderUrl, ".ai", MakeValidSharePointFileName(folderPath + Path.GetFileName(file)));
+        var cacheKey = $"CalculateAndUploadEmbeddingsAsync{folderPath}{file}";
+        return _cacheService.Get<List<(byte[] ByteArray, DateTime LastModified)>>(cacheKey);
+
+        //   return await _sharePointService.GetFilesByExtensionFromFolder(this._baseSiteUrl + this._vectorSiteUrl, this._vectorFolderUrl, ".ai", MakeValidSharePointFileName(folderPath + Path.GetFileName(file)));
     }
 
+    public async Task<(string ServerRelativeUrl, DateTime LastModified)?> GetFileInfoAsync(string siteUrl, string filePath)
+    {
+        using (var ctx = this._sharePointService.GetContext(siteUrl))
+        {
+            return await ctx.GetFileInfoAsync(filePath);
+        }
+
+    }
+
+    public async Task<List<(string ServerRelativeUrl, DateTime LastModified)>> GetSupportedFilesInFolderAsync(string siteUrl, string folderPath, List<string> supportedExtensions)
+    {
+        using (var clientContext = this._sharePointService.GetContext(siteUrl))
+        {
+            return await clientContext.GetSupportedFilesInFolderAsync(folderPath, supportedExtensions);
+        }
+    }
 
     public async Task<List<(byte[] ByteArray, DateTime LastModified)>> CalculateAndUploadEmbeddingsAsync(string folderPath, string fileName, List<string> lines)
     {
-        const int maxBatchSize = 2000;
-        int batchSize = Math.Min(maxBatchSize, lines.Count);
-        int suffix = 1;
-        List<(byte[] ByteArray, DateTime LastModified)> uploadedFiles = new List<(byte[] ByteArray, DateTime LastModified)>();
+        var dasdsa = Path.GetFileName(fileName);
+        var cacheKey = $"CalculateAndUploadEmbeddingsAsync{folderPath}{Path.GetFileName(fileName)}";
+        var uploadedFiles = _cacheService.Get<List<(byte[] ByteArray, DateTime LastModified)>>(cacheKey);
 
-        while (lines.Any())
+        if (uploadedFiles == null)
         {
-            try
-            {
-                List<string> currentBatch = lines.Take(batchSize).ToList();
-                byte[] embeddings = await _openAIService.CalculateEmbeddingAsync(currentBatch);
-                string fileNameWithSuffix = MakeValidSharePointFileName($"{folderPath}{Path.GetFileName(fileName)}-{suffix}") + ".ai";
-                await _sharePointService.UploadFileToSharePointAsync(embeddings, this._baseSiteUrl + this._vectorSiteUrl, this._vectorFolderUrl, fileNameWithSuffix);
 
-                uploadedFiles.Add((embeddings, DateTime.Now));
-                lines = lines.Skip(batchSize).ToList();
-                suffix++;
-                batchSize = Math.Min(maxBatchSize, lines.Count);
-            }
-            catch (Exception ex)
+            const int maxBatchSize = 2000;
+            int batchSize = Math.Min(maxBatchSize, lines.Count);
+            int suffix = 1;
+            uploadedFiles = new List<(byte[] ByteArray, DateTime LastModified)>();
+
+            while (lines.Any())
             {
-                batchSize = Math.Max(1, batchSize / 2);
-                if (batchSize == 1)
+                try
                 {
-                    _logger.LogError(ex, "Failed to calculate embeddings with batchSize 1.");
-                    break;
+                    List<string> currentBatch = lines.Take(batchSize).ToList();
+                    byte[] embeddings = await _openAIService.CalculateEmbeddingAsync(currentBatch);
+                    string fileNameWithSuffix = MakeValidSharePointFileName($"{folderPath}{Path.GetFileName(fileName)}-{suffix}") + ".ai";
+                    //await _sharePointService.UploadFileToSharePointAsync(embeddings, this._baseSiteUrl + this._vectorSiteUrl, this._vectorFolderUrl, fileNameWithSuffix);
+
+                    uploadedFiles.Add((embeddings, DateTime.Now));
+                    lines = lines.Skip(batchSize).ToList();
+                    suffix++;
+                    batchSize = Math.Min(maxBatchSize, lines.Count);
+                }
+                catch (Exception ex)
+                {
+                    batchSize = Math.Max(1, batchSize / 2);
+                    if (batchSize == 1)
+                    {
+                        _logger.LogError(ex, "Failed to calculate embeddings with batchSize 1.");
+                        break;
+                    }
                 }
             }
-        }
 
+            _cacheService.Set(cacheKey, uploadedFiles);
+        }
         return uploadedFiles;
     }
 

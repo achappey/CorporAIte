@@ -31,7 +31,10 @@ public class SharePointService
     {
         AuthenticationManager authManager = new AuthenticationManager();
 
-        return authManager.GetACSAppOnlyContext(url, this._clientId, this._clientSecret);
+        var context = authManager.GetACSAppOnlyContext(url, this._clientId, this._clientSecret);
+        context.RequestTimeout = Timeout.Infinite;
+
+        return context;
     }
 
     public async Task<string> ReadUrlFromFileAsync(string siteUrl, string pageUrl)
@@ -140,6 +143,22 @@ public class SharePointService
         }
     }
 
+    public async Task<AttachmentCollection> GetAttachmentsFromListItem(string siteUrl, string listTitle, int itemId)
+    {
+        using (var context = GetContext(siteUrl))
+        {
+            var web = context.Web;
+            var list = web.Lists.GetByTitle(listTitle);
+            var listItem = list.GetItemById(itemId);
+
+            // Load the ListItem's attachments
+            context.Load(listItem, item => item.AttachmentFiles);
+            await context.ExecuteQueryRetryAsync();
+
+            return listItem.AttachmentFiles;
+        }
+    }
+
     public async Task<IEnumerable<ListItem>> GetListItemsFromList(string siteUrl, string listTitle, string caml)
     {
         using (var context = GetContext(siteUrl))
@@ -202,80 +221,6 @@ public class SharePointService
         return fileBytes;
     }
 
-    public async Task<List<(string ServerRelativeUrl, DateTime LastModified)>> GetSupportedFilesInFolderAsync(string siteUrl, string folderPath, List<string> supportedExtensions)
-    {
-        using (var clientContext = GetContext(siteUrl))
-        {
-            var web = clientContext.Web;
-            var folder = web.GetFolderByServerRelativeUrl(folderPath);
-            var supportedFiles = new List<(string, DateTime)>();
-
-            await RetrieveSupportedFilesRecursively(clientContext, folder, supportedFiles, supportedExtensions);
-
-            return supportedFiles.Where(a => !a.Item1.StartsWith(folderPath + "/Forms/")).ToList();
-        }
-    }
-    /*
-         public async Task<List<(string ServerRelativeUrl, DateTime LastModified)>> GetSupportedFilesInFolderAsync2(string siteUrl, string folderPath, List<string> supportedExtensions)
-        {
-            using (var clientContext = GetContext2(siteUrl))
-            {
-                var web = clientContext.Web;
-                var folder = web.GetFolderByServerRelativeUrl(folderPath);
-                var supportedFiles = new List<(string, DateTime)>();
-
-                await RetrieveSupportedFilesRecursively(clientContext, folder, supportedFiles, supportedExtensions);
-
-                return supportedFiles.Where(a => !a.Item1.StartsWith(folderPath + "/Forms/")).ToList();
-            }
-        }
-    */
-    private async Task RetrieveSupportedFilesRecursively(ClientContext clientContext, Folder folder, List<(string, DateTime)> supportedFiles, List<string> supportedExtensions, bool includeSubfolders = true)
-    {
-        clientContext.Load(folder, a => a.Files, a => a.Folders);
-        await clientContext.ExecuteQueryRetryAsync();
-
-        var filteredFiles = folder.Files.Where(file =>
-            supportedExtensions.Contains(Path.GetExtension(file.Name).ToLowerInvariant())).ToList();
-
-        foreach (var file in filteredFiles)
-        {
-            clientContext.Load(file, a => a.ServerRelativeUrl, a => a.TimeLastModified);
-            await clientContext.ExecuteQueryRetryAsync();
-            supportedFiles.Add((file.ServerRelativeUrl, file.TimeLastModified));
-        }
-
-        if (includeSubfolders)
-        {
-            var excludeForms = folder.Folders.Where(a => a.Name != "Forms");
-
-            foreach (var subfolder in excludeForms)
-            {
-                await RetrieveSupportedFilesRecursively(clientContext, subfolder, supportedFiles, supportedExtensions, includeSubfolders);
-            }
-        }
-    }
-
-    public async Task<(string ServerRelativeUrl, DateTime LastModified)?> GetFileInfoAsync(string siteUrl, string filePath)
-    {
-        // Assuming you have already set up the SharePoint ClientContext
-        using (var ctx = GetContext(siteUrl))
-        {
-            var file = ctx.Web.GetFileByServerRelativeUrl(filePath);
-            ctx.Load(file, f => f.ServerRelativeUrl, f => f.TimeLastModified);
-            await ctx.ExecuteQueryAsync();
-
-            if (file != null)
-            {
-                return (file.ServerRelativeUrl, file.TimeLastModified);
-            }
-        }
-
-        return null;
-    }
-
-
-
     public async Task<List<(byte[] ByteArray, DateTime LastModified)>> GetFilesByExtensionFromFolder(string siteUrl, string folderUrl, string extension, string startsWith = "")
     {
         string cacheKey = $"GetFilesByExtensionFromFolder:{siteUrl}:{folderUrl}:{extension}:{startsWith}";
@@ -337,7 +282,7 @@ public class SharePointService
             }
             else
             {
-                await UploadLargeFileAsync(context, folder, fileBytes, fileName, blockSize);
+                await UploadLargeFileAsync(context, folder, fileBytes, fileName, blockSize, folderUrl);
             }
         }
     }
@@ -355,7 +300,7 @@ public class SharePointService
         await context.ExecuteQueryRetryAsync();
     }
 
-    private async Task UploadLargeFileAsync(ClientContext context, Folder folder, byte[] fileBytes, string fileName, int blockSize)
+    private async Task UploadLargeFileAsync(ClientContext context, Folder folder, byte[] fileBytes, string fileName, int blockSize, string folderUrl)
     {
         long fileOffset = 0;
         long totalBytesRead = 0;
@@ -380,14 +325,15 @@ public class SharePointService
                     {
                         uploadFile = UploadFirstSlice(context, folder, fileName, uploadId, sliceStream);
                         isFirstSlice = false;
+                        Thread.Sleep(1000);
                     }
                     else if (isLastSlice)
                     {
-                        await FinishUploadAsync(context, folder.ServerRelativeUrl, fileName, uploadId, fileOffset, sliceStream);
+                        FinishUploadAsync(context, folderUrl, fileName, uploadId, fileOffset, sliceStream);
                     }
                     else
                     {
-                        fileOffset = await UploadSliceAsync(context, folder.ServerRelativeUrl, fileName, uploadId, fileOffset, sliceStream);
+                        fileOffset = UploadSliceAsync(context, folderUrl, fileName, uploadId, fileOffset, sliceStream);
                     }
                 }
             }
@@ -405,25 +351,25 @@ public class SharePointService
 
         var uploadFile = folder.Files.Add(fileInfo);
         uploadFile.StartUpload(uploadId, sliceStream);
-        context.ExecuteQueryRetryAsync();
+        context.ExecuteQueryRetry();
 
         return uploadFile;
     }
 
-    private async Task<long> UploadSliceAsync(ClientContext context, string folderUrl, string fileName, Guid uploadId, long fileOffset, MemoryStream sliceStream)
+    private long UploadSliceAsync(ClientContext context, string folderUrl, string fileName, Guid uploadId, long fileOffset, MemoryStream sliceStream)
     {
         var uploadFile = context.Web.GetFileByServerRelativeUrl(folderUrl + System.IO.Path.AltDirectorySeparatorChar + fileName);
         var bytesUploaded = uploadFile.ContinueUpload(uploadId, fileOffset, sliceStream);
-        await context.ExecuteQueryRetryAsync();
+        context.ExecuteQueryRetry();
 
         return bytesUploaded.Value;
     }
 
-    private async Task FinishUploadAsync(ClientContext context, string folderUrl, string fileName, Guid uploadId, long fileOffset, MemoryStream sliceStream)
+    private void FinishUploadAsync(ClientContext context, string folderUrl, string fileName, Guid uploadId, long fileOffset, MemoryStream sliceStream)
     {
         var uploadFile = context.Web.GetFileByServerRelativeUrl(folderUrl + System.IO.Path.AltDirectorySeparatorChar + fileName);
         uploadFile.FinishUpload(uploadId, fileOffset, sliceStream);
-        await context.ExecuteQueryRetryAsync();
+        context.ExecuteQueryRetry();
     }
 
     public string ExtractSiteServerRelativeUrl(string serverRelativeFullPath)
@@ -433,25 +379,7 @@ public class SharePointService
             throw new ArgumentException("Server relative full path must not be null or empty.");
         }
 
-        return "/" + serverRelativeFullPath.Split('/')[1] + "/"+ serverRelativeFullPath.Split('/')[2];
-/*
-        int indexOfSites = serverRelativeFullPath.IndexOf("/sites/", StringComparison.OrdinalIgnoreCase);
-
-        if (indexOfSites == -1)
-        {
-            throw new ArgumentException("Invalid SharePoint server relative full path.");
-        }
-
-        int endIndex = serverRelativeFullPath.IndexOf('/', indexOfSites + "/sites/".Length);
-
-        if (endIndex == -1)
-        {
-            endIndex = serverRelativeFullPath.Length;
-        }
-
-        string siteServerRelativeUrl = serverRelativeFullPath.Substring(0, endIndex);
-
-        return siteServerRelativeUrl;*/
+        return "/" + serverRelativeFullPath.Split('/')[1] + "/" + serverRelativeFullPath.Split('/')[2];
     }
 
 

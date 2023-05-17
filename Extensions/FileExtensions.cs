@@ -42,6 +42,7 @@ namespace CorporAIte.Extensions
 
             return (folders, files);
         }
+        
         public static List<string> ConvertFileContentToList(this byte[] bytes, string extension)
         {
             switch (extension)
@@ -56,6 +57,8 @@ namespace CorporAIte.Extensions
                     return bytes.ConvertPptxToLines();
                 case ".txt":
                     return bytes.ConvertTxtToList();
+                case ".msg":
+                    return bytes.ConvertMsgToLines();
                 default:
                     throw new NotSupportedException($"Unsupported file extension: {extension}");
             }
@@ -172,9 +175,11 @@ namespace CorporAIte.Extensions
                     string line;
                     while ((line = streamReader.ReadLine()) != null)
                     {
-                        if (!string.IsNullOrEmpty(line))
+                        string trimmedLine = line.Trim();
+
+                        if (!string.IsNullOrEmpty(trimmedLine))
                         {
-                            lines.Add(line);
+                            lines.Add(trimmedLine);
                         }
 
                     }
@@ -182,6 +187,61 @@ namespace CorporAIte.Extensions
                     return lines;
                 }
             }
+        }
+
+        public static List<Tuple<byte[], string, DateTime?>> ExtractAttachments(this byte[] msgBytes)
+        {
+            using var stream = new MemoryStream(msgBytes);
+            using var message = new MsgReader.Outlook.Storage.Message(stream);
+
+            var attachments = new List<Tuple<byte[], string, DateTime?>>();
+
+            foreach (MsgReader.Outlook.Storage.Attachment attachment in message.Attachments)
+            {
+                // Make a copy of the attachment data.
+                byte[] dataCopy = new List<byte>(attachment.Data).ToArray();
+
+                // Create a tuple containing the data, filename, and last modified time.
+                var tuple = new Tuple<byte[], string, DateTime?>(dataCopy, attachment.FileName, attachment.LastModificationTime);
+
+                attachments.Add(tuple);
+
+                // Dispose of the Attachment object.
+                attachment.Dispose();
+            }
+
+            return attachments;
+        }
+
+        public static List<string> ConvertMsgToLines(this byte[] msgBytes)
+        {
+            using var stream = new MemoryStream(msgBytes);
+            using var message = new MsgReader.Outlook.Storage.Message(stream);
+
+            var paragraphs = new List<string>();
+
+            paragraphs.Add("Subject: " + message.Subject);
+            paragraphs.Add("Sender: " + message.Sender);
+            paragraphs.Add("Recipients: " + string.Join(",", message.Recipients.Select(a => a.DisplayName)));
+            paragraphs.Add("SentOn: " + message.SentOn?.ToString());
+
+            // Extract the body of the message.
+            string body = message.BodyText;
+
+            // Split the body into lines.
+            var lines = body.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None);
+
+            foreach (var line in lines)
+            {
+                string trimmedLine = line.Trim();
+
+                if (!string.IsNullOrWhiteSpace(trimmedLine))
+                {
+                    paragraphs.Add(trimmedLine);
+                }
+            }
+
+            return paragraphs;
         }
 
         public static async Task<List<string>> ConvertPageToList(this HttpClient httpClient, string url)
