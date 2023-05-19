@@ -96,7 +96,13 @@ public class SharePointAIService
                 Messages = messages.Select(a => new Message()
                 {
                     Content = a["Bericht"].ToString(),
-                    Role = a["Title"].ToString()
+                    Role = a["Title"].ToString(),
+                    Format = a["Format"] != null ? a["Format"].ToString() : null,
+                    Emotional = int.Parse(a["Emotioneel"].ToString()),
+                    Authoritarian = int.Parse(a["Autoritair"].ToString()),
+                    Concrete = int.Parse(a["Concreet"].ToString()),
+                    Convincing = int.Parse(a["Overtuigend"].ToString()),
+                    Friendly = int.Parse(a["Vriendelijk"].ToString()),
                 }).ToList()
             };
         }

@@ -19,6 +19,18 @@ namespace CorporAIte.Models
         /// </summary>
         public string Content { get; set; }
 
+        public string Format { get; set; }
+
+        public int Emotional { get; set; }
+
+        public int Authoritarian { get; set; }
+
+        public int Concrete { get; set; }
+
+        public int Convincing { get; set; }
+
+        public int Friendly { get; set; }
+
         /// <summary>
         /// Initializes a new instance of the <see cref="ChatMessage"/> class.
         /// </summary>
