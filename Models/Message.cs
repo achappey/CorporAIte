@@ -1,3 +1,4 @@
+
 namespace CorporAIte.Models
 {
     /// <summary>

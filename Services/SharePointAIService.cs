@@ -97,7 +97,7 @@ public class SharePointAIService
                 {
                     Content = a["Bericht"].ToString(),
                     Role = a["Title"].ToString(),
-                    Format = a["Format"] != null ? a["Format"].ToString() : null,
+                    Format = a["Formaat"] != null ? a["Formaat"].ToString() : null,
                     Emotional = int.Parse(a["Emotioneel"].ToString()),
                     Authoritarian = int.Parse(a["Autoritair"].ToString()),
                     Concrete = int.Parse(a["Concreet"].ToString()),
