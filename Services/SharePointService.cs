@@ -1,5 +1,6 @@
 
 using CorporAIte;
+using CorporAIte.Extensions;
 using HtmlAgilityPack;
 using Microsoft.SharePoint.Client;
 using PnP.Framework;
@@ -8,16 +9,6 @@ public class SharePointService
 {
     private readonly string _clientId;
     private readonly string _clientSecret;
-    private static Dictionary<string, (byte[], DateTime)> _cache = new Dictionary<string, (byte[], DateTime)>();
-    private static readonly int MAX_CACHE_SIZE = 1000;
-    private static readonly TimeSpan CACHE_EXPIRATION_TIME = TimeSpan.FromDays(1);
-    private static readonly object _cacheLock = new object();
-
-    private static Dictionary<string, (List<(byte[] ByteArray, DateTime LastModified)>, DateTime)> _vectorCache = new Dictionary<string, (List<(byte[] ByteArray, DateTime LastModified)>, DateTime)>();
-    private static readonly object _vectorCacheLock = new object();
-
-    private static Dictionary<string, (List<string>, DateTime)> _pageCache = new Dictionary<string, (List<string>, DateTime)>();
-    private static readonly object _pageCacheLock = new object();
     private readonly ICacheService _cacheService;
 
     public SharePointService(AppConfig config, ICacheService cacheService)
@@ -93,7 +84,7 @@ public class SharePointService
                         var htmlDoc = new HtmlDocument();
                         htmlDoc.LoadHtml(htmlContent);
 
-                        pageParagraphs = ExtractTextFromHtmlParagraphs(htmlDoc);
+                        pageParagraphs = htmlDoc.ExtractTextFromHtmlParagraphs();
                         _cacheService.Set(cacheKey, pageParagraphs);
                     }
                 }
@@ -101,81 +92,6 @@ public class SharePointService
         }
 
         return pageParagraphs;
-    }
-
-    private List<string> ExtractTextFromHtmlParagraphs(HtmlDocument htmlDoc)
-    {
-        var paragraphs = htmlDoc.DocumentNode.SelectNodes("//p");
-        var pageParagraphs = new List<string>();
-
-        if (paragraphs is not null)
-        {
-            foreach (var paragraph in paragraphs)
-            {
-                if (paragraph.InnerText is not null)
-                {
-                    var text = paragraph.InnerText.Trim();
-
-                    if (!string.IsNullOrEmpty(text))
-                    {
-                        pageParagraphs.Add(text);
-                    }
-                }
-            }
-        }
-
-        return pageParagraphs;
-    }
-
-    public async Task<ListItem> GetListItemFromList(string siteUrl, string listTitle, int itemId)
-    {
-        using (var context = GetContext(siteUrl))
-        {
-            var web = context.Web;
-            var list = web.Lists.GetByTitle(listTitle);
-            var listItem = list.GetItemById(itemId);
-
-            // Load the ListItem data
-            context.Load(listItem);
-            await context.ExecuteQueryRetryAsync();
-
-            return listItem;
-        }
-    }
-
-    public async Task<AttachmentCollection> GetAttachmentsFromListItem(string siteUrl, string listTitle, int itemId)
-    {
-        using (var context = GetContext(siteUrl))
-        {
-            var web = context.Web;
-            var list = web.Lists.GetByTitle(listTitle);
-            var listItem = list.GetItemById(itemId);
-
-            // Load the ListItem's attachments
-            context.Load(listItem, item => item.AttachmentFiles);
-            await context.ExecuteQueryRetryAsync();
-
-            return listItem.AttachmentFiles;
-        }
-    }
-
-    public async Task<IEnumerable<ListItem>> GetListItemsFromList(string siteUrl, string listTitle, string caml)
-    {
-        using (var context = GetContext(siteUrl))
-        {
-            var web = context.Web;
-            var list = web.Lists.GetByTitle(listTitle);
-            var listItems = list.GetItems(new CamlQuery()
-            {
-                ViewXml = caml
-            });
-
-            // Load the ListItem data
-            context.Load(listItems);
-            await context.ExecuteQueryRetryAsync();
-
-            return listItems;
-        }
     }
 
     public async Task<byte[]> DownloadFileFromSharePointAsync(string siteUrl, string filePath)
@@ -200,8 +116,6 @@ public class SharePointService
                 await context.ExecuteQueryRetryAsync();
 
                 // Download the file from SharePoint and convert it to a byte array
-
-
                 var fileStream = file.OpenBinaryStream();
 
                 await context.ExecuteQueryRetryAsync();
@@ -278,108 +192,13 @@ public class SharePointService
             // Upload file based on its size
             if (fileBytes.Length <= blockSize)
             {
-                await UploadSmallFileAsync(context, folder, fileBytes, fileName);
+                await context.UploadSmallFileAsync(folder, fileBytes, fileName);
             }
             else
             {
-                await UploadLargeFileAsync(context, folder, fileBytes, fileName, blockSize, folderUrl);
+                await context.UploadLargeFileAsync(folder, fileBytes, fileName, blockSize, folderUrl);
             }
         }
-    }
-
-    private async Task UploadSmallFileAsync(ClientContext context, Folder folder, byte[] fileBytes, string fileName)
-    {
-        FileCreationInformation fileInfo = new FileCreationInformation
-        {
-            Content = fileBytes,
-            Url = fileName,
-            Overwrite = true
-        };
-
-        folder.Files.Add(fileInfo);
-        await context.ExecuteQueryRetryAsync();
-    }
-
-    private async Task UploadLargeFileAsync(ClientContext context, Folder folder, byte[] fileBytes, string fileName, int blockSize, string folderUrl)
-    {
-        long fileOffset = 0;
-        long totalBytesRead = 0;
-        bool isFirstSlice = true;
-        Microsoft.SharePoint.Client.File uploadFile = null;
-        Guid uploadId = Guid.NewGuid();
-
-        using (MemoryStream stream = new MemoryStream(fileBytes))
-        {
-            int bytesRead;
-            byte[] buffer = new byte[blockSize];
-
-            // Read and upload file slices
-            while ((bytesRead = stream.Read(buffer, 0, buffer.Length)) > 0)
-            {
-                totalBytesRead += bytesRead;
-                bool isLastSlice = totalBytesRead == fileBytes.Length;
-
-                using (MemoryStream sliceStream = new MemoryStream(buffer, 0, bytesRead))
-                {
-                    if (isFirstSlice)
-                    {
-                        uploadFile = UploadFirstSlice(context, folder, fileName, uploadId, sliceStream);
-                        isFirstSlice = false;
-                        Thread.Sleep(1000);
-                    }
-                    else if (isLastSlice)
-                    {
-                        FinishUploadAsync(context, folderUrl, fileName, uploadId, fileOffset, sliceStream);
-                    }
-                    else
-                    {
-                        fileOffset = UploadSliceAsync(context, folderUrl, fileName, uploadId, fileOffset, sliceStream);
-                    }
-                }
-            }
-        }
-    }
-
-    private Microsoft.SharePoint.Client.File UploadFirstSlice(ClientContext context, Folder folder, string fileName, Guid uploadId, MemoryStream sliceStream)
-    {
-        FileCreationInformation fileInfo = new FileCreationInformation
-        {
-            ContentStream = new MemoryStream(), // Add an empty file
-            Url = fileName,
-            Overwrite = true
-        };
-
-        var uploadFile = folder.Files.Add(fileInfo);
-        uploadFile.StartUpload(uploadId, sliceStream);
-        context.ExecuteQueryRetry();
-
-        return uploadFile;
-    }
-
-    private long UploadSliceAsync(ClientContext context, string folderUrl, string fileName, Guid uploadId, long fileOffset, MemoryStream sliceStream)
-    {
-        var uploadFile = context.Web.GetFileByServerRelativeUrl(folderUrl + System.IO.Path.AltDirectorySeparatorChar + fileName);
-        var bytesUploaded = uploadFile.ContinueUpload(uploadId, fileOffset, sliceStream);
-        context.ExecuteQueryRetry();
-
-        return bytesUploaded.Value;
-    }
-
-    private void FinishUploadAsync(ClientContext context, string folderUrl, string fileName, Guid uploadId, long fileOffset, MemoryStream sliceStream)
-    {
-        var uploadFile = context.Web.GetFileByServerRelativeUrl(folderUrl + System.IO.Path.AltDirectorySeparatorChar + fileName);
-        uploadFile.FinishUpload(uploadId, fileOffset, sliceStream);
-        context.ExecuteQueryRetry();
-    }
-
-    public string ExtractSiteServerRelativeUrl(string serverRelativeFullPath)
-    {
-        if (string.IsNullOrWhiteSpace(serverRelativeFullPath))
-        {
-            throw new ArgumentException("Server relative full path must not be null or empty.");
-        }
-
-        return "/" + serverRelativeFullPath.Split('/')[1] + "/" + serverRelativeFullPath.Split('/')[2];
     }
 
 

@@ -42,7 +42,7 @@ namespace CorporAIte.Extensions
 
             return (folders, files);
         }
-        
+
         public static List<string> ConvertFileContentToList(this byte[] bytes, string extension)
         {
             switch (extension)
@@ -244,6 +244,31 @@ namespace CorporAIte.Extensions
             return paragraphs;
         }
 
+
+        public static List<string> ExtractTextFromHtmlParagraphs(this HtmlDocument htmlDoc)
+        {
+            var paragraphs = htmlDoc.DocumentNode.SelectNodes("//p");
+            var pageParagraphs = new List<string>();
+
+            if (paragraphs is not null)
+            {
+                foreach (var paragraph in paragraphs)
+                {
+                    if (paragraph.InnerText is not null)
+                    {
+                        var text = paragraph.InnerText.Trim();
+
+                        if (!string.IsNullOrEmpty(text))
+                        {
+                            pageParagraphs.Add(text);
+                        }
+                    }
+                }
+            }
+
+            return pageParagraphs;
+        }
+
         public static async Task<List<string>> ConvertPageToList(this HttpClient httpClient, string url)
         {
             // Download the HTML content of the provided URL.
@@ -253,26 +278,8 @@ namespace CorporAIte.Extensions
             var htmlDocument = new HtmlDocument();
             htmlDocument.LoadHtml(htmlContent);
 
-            // Extract the main paragraphs.
-            var paragraphs = new List<string>();
-            var paragraphNodes = htmlDocument.DocumentNode.SelectNodes("//p");
+            return htmlDocument.ExtractTextFromHtmlParagraphs();
 
-            if (paragraphNodes != null)
-            {
-                foreach (var paragraphNode in paragraphNodes)
-                {
-                    // Add the inner text of each paragraph to the list.
-                    var result = paragraphNode.InnerText.Trim();
-
-                    if (!string.IsNullOrEmpty(result))
-                    {
-                        paragraphs.Add(result);
-                    }
-
-                }
-            }
-
-            return paragraphs;
         }
 
         public static List<string> ConvertCsvToList(this byte[] csvBytes)

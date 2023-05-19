@@ -1,6 +1,8 @@
 using AutoMapper;
 using CorporAIte.Extensions;
 using CorporAIte.Models;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 public class CorporAIteService
 {
@@ -84,8 +86,6 @@ public class CorporAIteService
                 return await this._httpClient.ConvertPageToList(url);
 
             case ".msg":
-                //var url = await _sharePointService.ReadUrlFromFileAsync(siteUrl, file);
-                //return await this._httpClient.ConvertPageToList(url);
                 byte[] mailBytes = await _sharePointService.DownloadFileFromSharePointAsync(siteUrl, file);
                 var mailFile = mailBytes.ConvertFileContentToList(extension);
 
@@ -249,20 +249,64 @@ public class CorporAIteService
         throw new Exception("Failed to chat with context.");
     }
 
-    public async Task<Message> ListChatAsync(int chatId)
+    public async Task<Conversation> GetChatAsync(int chatId, string messageContent = null)
     {
         var chat = await this._sharePointAIService.GetListChat(chatId);
 
+        if (!string.IsNullOrEmpty(messageContent))
+        {
+            chat.Messages.Add(new Message()
+            {
+                Role = "user",
+                Content = messageContent
+            });
+        }
+
+        return chat;
+    }
+
+    public async Task<Message> ProcessChatAsync(Conversation chat)
+    {
         if (chat.Sources.Any())
         {
-            return await ChatWithDataFolderAsync(chat.Sources, chat!);
-
+            return await ChatWithDataFolderAsync(chat.Sources, chat);
         }
         else
         {
             return await ChatWithFallback(chat);
         }
     }
+
+    public async Task<Message> ListChatAsync(int chatId)
+    {
+        var chat = await GetChatAsync(chatId);
+        return await ProcessChatAsync(chat);
+    }
+
+    public async Task<string> GetChatNameAsync(int chatId)
+    {
+        var chat = await GetChatAsync(chatId, CorporAIte.Prompts.ChatName);
+        var result = await ProcessChatAsync(chat);
+
+        return result.Content;
+    }
+
+    public async Task<Suggestions> GetPromptPredictionAsync(int chatId)
+    {
+        var chat = await GetChatAsync(chatId, CorporAIte.Prompts.PredictPrompt);
+        var result = await ProcessChatAsync(chat);
+
+        try
+        {
+            return JsonSerializer.Deserialize<Suggestions>(result.Content);
+
+        }
+        catch (JsonException)
+        {
+            return new Suggestions();
+        }
+    }
+
 
     public async Task<Folders> GetOneDriveFolders(string userId)
     {

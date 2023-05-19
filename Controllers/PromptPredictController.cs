@@ -5,26 +5,26 @@ namespace CorporAIte.Controllers;
 
 [ApiController]
 [Route("[controller]")]
-public class ListChatController : ControllerBase
+public class PromptPredictController : ControllerBase
 {
-    private readonly ILogger<ListChatController> _logger;
+    private readonly ILogger<PromptPredictController> _logger;
 
     private readonly CorporAIteService _corporAiteService;
 
-    public ListChatController(ILogger<ListChatController> logger, CorporAIteService corporAiteService)
+    public PromptPredictController(ILogger<PromptPredictController> logger, CorporAIteService corporAiteService)
     {
         _logger = logger;
         _corporAiteService = corporAiteService;
     }
 
-    [HttpGet(Name = "ListChat")]
-    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(Message))]
+    [HttpGet(Name = "PredictPrompt")]
+    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(Suggestions))]
     [Produces("application/json")]
-    public async Task<IActionResult> ListChat([FromQuery] int chatId)
+    public async Task<IActionResult> PredictPrompt([FromQuery] int chatId)
     {
         try
         {
-            var result = await _corporAiteService.ListChatAsync(chatId);
+            var result = await _corporAiteService.GetPromptPredictionAsync(chatId);
 
             return Ok(result);
         }

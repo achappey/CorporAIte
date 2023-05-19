@@ -5,26 +5,26 @@ namespace CorporAIte.Controllers;
 
 [ApiController]
 [Route("[controller]")]
-public class ListChatController : ControllerBase
+public class ChatNameController : ControllerBase
 {
-    private readonly ILogger<ListChatController> _logger;
+    private readonly ILogger<ChatNameController> _logger;
 
     private readonly CorporAIteService _corporAiteService;
 
-    public ListChatController(ILogger<ListChatController> logger, CorporAIteService corporAiteService)
+    public ChatNameController(ILogger<ChatNameController> logger, CorporAIteService corporAiteService)
     {
         _logger = logger;
         _corporAiteService = corporAiteService;
     }
 
-    [HttpGet(Name = "ListChat")]
-    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(Message))]
+    [HttpGet(Name = "ChatName")]
+    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(string))]
     [Produces("application/json")]
-    public async Task<IActionResult> ListChat([FromQuery] int chatId)
+    public async Task<IActionResult> ChatName([FromQuery] int chatId)
     {
         try
         {
-            var result = await _corporAiteService.ListChatAsync(chatId);
+            var result = await _corporAiteService.GetChatNameAsync(chatId);
 
             return Ok(result);
         }

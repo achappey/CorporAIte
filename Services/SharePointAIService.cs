@@ -54,16 +54,18 @@ public class SharePointAIService
 
     public async Task<Conversation> GetListChat(int itemId)
     {
-        var conversation = await this._sharePointService.GetListItemFromList(this._baseSiteUrl + this._chatSiteUrl, "Conversaties", itemId);
-        var attachments = await this._sharePointService.GetAttachmentsFromListItem(this._baseSiteUrl + this._chatSiteUrl, "Conversaties", itemId);
-        var sources = attachments.Select(a => this._baseSiteUrl + a.ServerRelativeUrl).ToList();
-
-        if (conversation["Map"] != null)
+        using (var context = this._sharePointService.GetContext(this._baseSiteUrl + this._chatSiteUrl))
         {
-            sources.Add(conversation["Map"].ToString());
-        }
+            var conversation = await context.GetListItemFromList(this._baseSiteUrl + this._chatSiteUrl, "Conversaties", itemId);
+            var attachments = await context.GetAttachmentsFromListItem(this._baseSiteUrl + this._chatSiteUrl, "Conversaties", itemId);
+            var sources = attachments.Select(a => this._baseSiteUrl + a.ServerRelativeUrl).ToList();
 
-        var messages = await this._sharePointService.GetListItemsFromList(this._baseSiteUrl + this._chatSiteUrl, "Berichten", $@"
+            if (conversation["Map"] != null)
+            {
+                sources.Add(conversation["Map"].ToString());
+            }
+
+            var messages = await context.GetListItemsFromList(this._baseSiteUrl + this._chatSiteUrl, "Berichten", $@"
                 <View>
                     <Query>
                         <Where>
@@ -78,25 +80,27 @@ public class SharePointAIService
                     </Query>
                 </View>");
 
-        var lookupId = (conversation["Systeem_x0020_Prompt"] as FieldLookupValue).LookupId;
+            var lookupId = (conversation["Systeem_x0020_Prompt"] as FieldLookupValue).LookupId;
 
-        var systemPrompt = await this._sharePointService.GetListItemFromList(this._baseSiteUrl + this._chatSiteUrl, "Systeem Prompts", lookupId);
+            var systemPrompt = await context.GetListItemFromList(this._baseSiteUrl + this._chatSiteUrl, "Systeem Prompts", lookupId);
 
-        return new Conversation()
-        {
-            SystemPrompt = new SystemPrompt()
+            return new Conversation()
             {
-                Prompt = systemPrompt["Prompt"].ToString(),
-                ForceVectorGeneration = systemPrompt["Altijdvectorsgenereren"] != null ? bool.Parse(systemPrompt["Altijdvectorsgenereren"].ToString()) : false,
-                Temperature = float.Parse(systemPrompt["Temperatuur"].ToString())
-            },
-            Sources = sources,
-            Messages = messages.Select(a => new Message()
-            {
-                Content = a["Bericht"].ToString(),
-                Role = a["Title"].ToString()
-            }).ToList()
-        };
+                SystemPrompt = new SystemPrompt()
+                {
+                    Prompt = systemPrompt["Prompt"].ToString(),
+                    ForceVectorGeneration = systemPrompt["Altijdvectorsgenereren"] != null ? bool.Parse(systemPrompt["Altijdvectorsgenereren"].ToString()) : false,
+                    Temperature = float.Parse(systemPrompt["Temperatuur"].ToString())
+                },
+                Sources = sources,
+                Messages = messages.Select(a => new Message()
+                {
+                    Content = a["Bericht"].ToString(),
+                    Role = a["Title"].ToString()
+                }).ToList()
+            };
+        }
+
     }
 
     public async Task<List<(byte[] ByteArray, DateTime LastModified)>> GetAiFilesForFile(string folderPath, string file)
