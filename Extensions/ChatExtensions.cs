@@ -4,7 +4,16 @@ namespace CorporAIte.Extensions
 {
     public static class ChatExtensions
     {
+        public static int ParseToInt(this object? value)
+        {
+            if (value != null && int.TryParse(value.ToString(), out var result))
+            {
+                return result;
+            }
 
+            return 0;
+        }
+        
         public static void ShortenChatHistory(this Conversation chat)
         {
             int startIndex = chat.Messages[0].Role == "system" ? 1 : 0;

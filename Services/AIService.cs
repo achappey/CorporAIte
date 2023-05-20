@@ -35,13 +35,14 @@ public class AIService
         }
 
         var mergeEmbeddings = embeddings
-            .Select(ConvertEmbedding)
-            .SelectMany(p => p.Data.Select(z => CalculateCosineSimilarity(z.Embedding.ToArray(), queryEmbeddingVector)))
-            .ToList();
+            .SelectMany(e =>
+            {
+                var converted = ConvertEmbedding(e);
+                return converted.Data.Select(d => CalculateCosineSimilarity(d.Embedding.ToArray(), queryEmbeddingVector));
+            }).ToList();
 
         return mergeEmbeddings;
     }
-
 
     public async Task<byte[]> CalculateEmbeddingAsync(object input)
     {
@@ -59,13 +60,14 @@ public class AIService
             throw new Exception(embeddingResult.Error.Message);
         }
 
-        return Encoding.UTF8.GetBytes(JsonSerializer.Serialize(embeddingResult));
+        string jsonString = JsonSerializer.Serialize(embeddingResult);
+        byte[] jsonBytes = Encoding.UTF8.GetBytes(jsonString);
+        return jsonBytes;
     }
-
 
     public async Task<ChatMessage> ChatWithContextAsync(string context, float temperature, IEnumerable<ChatMessage> messages)
     {
-        var messageHistory = new List<ChatMessage>
+        var messageHistory = new List<ChatMessage>(messages.Count() + 1)
     {
         new ChatMessage("system", context)
     };
@@ -74,7 +76,7 @@ public class AIService
 
         var chatCompletionRequest = new ChatCompletionCreateRequest
         {
-            Model = "gpt-3.5-turbo",
+            Model = OpenAI.GPT3.ObjectModels.Models.ChatGpt3_5Turbo,
             Temperature = temperature,
             Messages = messageHistory
         };

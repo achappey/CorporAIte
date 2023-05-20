@@ -14,7 +14,7 @@ public class ChatProfile : Profile
             {
                 if (!string.IsNullOrEmpty(src.Format))
                 {
-                    dest.Content += $" Formateer als {{src.Format}}";
+                    dest.Content += $" Formateer als {{src.Format}} content";
                 }
 
                 string attributes = $"{src.Emotional}{src.Authoritarian}{src.Concrete}{src.Convincing}{src.Friendly}";

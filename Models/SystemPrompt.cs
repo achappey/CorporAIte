@@ -11,6 +11,10 @@ namespace CorporAIte.Models
 
         public bool ForceVectorGeneration { get; set; }
 
+        public string ConversationNamePrompt { get; set; }
+        
+        public string PredictionPrompt { get; set; }
+
         public SystemPrompt()
         {
         }

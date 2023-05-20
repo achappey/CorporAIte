@@ -50,63 +50,64 @@ public class SharePointAIService
 
         return validFileName;
     }
-
-
     public async Task<Conversation> GetListChat(int itemId)
     {
-        using (var context = this._sharePointService.GetContext(this._baseSiteUrl + this._chatSiteUrl))
+        using (var context = _sharePointService.GetContext(_baseSiteUrl + _chatSiteUrl))
         {
-            var conversation = await context.GetListItemFromList(this._baseSiteUrl + this._chatSiteUrl, "Conversaties", itemId);
-            var attachments = await context.GetAttachmentsFromListItem(this._baseSiteUrl + this._chatSiteUrl, "Conversaties", itemId);
-            var sources = attachments.Select(a => this._baseSiteUrl + a.ServerRelativeUrl).ToList();
+            var conversation = await context.GetListItemFromList(_baseSiteUrl + _chatSiteUrl, "Conversaties", itemId);
+            var attachments = await context.GetAttachmentsFromListItem(_baseSiteUrl + _chatSiteUrl, "Conversaties", itemId);
+            var sources = attachments.Select(a => _baseSiteUrl + a.ServerRelativeUrl).ToList();
 
-            if (conversation["Map"] != null)
+            if (conversation?[FieldNames.Map] != null)
             {
-                sources.Add(conversation["Map"].ToString());
+                sources.Add(conversation[FieldNames.Map].ToString());
             }
 
-            var messages = await context.GetListItemsFromList(this._baseSiteUrl + this._chatSiteUrl, "Berichten", $@"
-                <View>
-                    <Query>
-                        <Where>
-                            <Eq>
-                                <FieldRef Name='Conversatie' LookupId='TRUE' />
-                                <Value Type='Lookup'>{conversation.Id}</Value>
-                            </Eq>
-                        </Where>
-                        <OrderBy>
-                            <FieldRef Name='Created' Ascending='TRUE' />
-                        </OrderBy>
-                    </Query>
-                </View>");
+            var messages = await context.GetListItemsFromList(_baseSiteUrl + _chatSiteUrl, "Berichten", $@"
+            <View>
+                <Query>
+                    <Where>
+                        <Eq>
+                            <FieldRef Name='{FieldNames.Conversatie}' LookupId='TRUE' />
+                            <Value Type='Lookup'>{conversation?.Id}</Value>
+                        </Eq>
+                    </Where>
+                    <OrderBy>
+                        <FieldRef Name='{FieldNames.Created}' Ascending='TRUE' />
+                    </OrderBy>
+                </Query>
+            </View>");
 
-            var lookupId = (conversation["Systeem_x0020_Prompt"] as FieldLookupValue).LookupId;
+            var lookupId = (conversation?[FieldNames.SysteemPrompt] as FieldLookupValue)?.LookupId;
+            var systemPrompt = await context.GetListItemFromList(_baseSiteUrl + _chatSiteUrl, "Systeem Prompts", lookupId.GetValueOrDefault());
 
-            var systemPrompt = await context.GetListItemFromList(this._baseSiteUrl + this._chatSiteUrl, "Systeem Prompts", lookupId);
+            float.TryParse(systemPrompt?[FieldNames.Temperatuur]?.ToString(), out var temperature);
+            bool.TryParse(systemPrompt?[FieldNames.Altijdvectorsgenereren]?.ToString(), out var forceVectorGeneration);
 
             return new Conversation()
             {
                 SystemPrompt = new SystemPrompt()
                 {
-                    Prompt = systemPrompt["Prompt"].ToString(),
-                    ForceVectorGeneration = systemPrompt["Altijdvectorsgenereren"] != null ? bool.Parse(systemPrompt["Altijdvectorsgenereren"].ToString()) : false,
-                    Temperature = float.Parse(systemPrompt["Temperatuur"].ToString())
+                    Prompt = systemPrompt?[FieldNames.Prompt]?.ToString(),
+                    ConversationNamePrompt = systemPrompt?[FieldNames.Naamconversatie]?.ToString(),
+                    PredictionPrompt = systemPrompt?[FieldNames.Suggestievraag]?.ToString(),
+                    ForceVectorGeneration = forceVectorGeneration,
+                    Temperature = temperature
                 },
                 Sources = sources,
-                Messages = messages.Select(a => new Message()
+                Messages = messages?.Select(a => new Message()
                 {
-                    Content = a["Bericht"].ToString(),
-                    Role = a["Title"].ToString(),
-                    Format = a["Formaat"] != null ? a["Formaat"].ToString() : null,
-                    Emotional = int.Parse(a["Emotioneel"].ToString()),
-                    Authoritarian = int.Parse(a["Autoritair"].ToString()),
-                    Concrete = int.Parse(a["Concreet"].ToString()),
-                    Convincing = int.Parse(a["Overtuigend"].ToString()),
-                    Friendly = int.Parse(a["Vriendelijk"].ToString()),
+                    Content = a[FieldNames.Bericht]?.ToString(),
+                    Role = a[FieldNames.Title]?.ToString(),
+                    Format = a[FieldNames.Formaat]?.ToString(),
+                    Emotional = a[FieldNames.Emotioneel].ParseToInt(),
+                    Authoritarian = a[FieldNames.Autoritair].ParseToInt(),
+                    Concrete = a[FieldNames.Concreet].ParseToInt(),
+                    Convincing = a[FieldNames.Overtuigend].ParseToInt(),
+                    Friendly = a[FieldNames.Vriendelijk].ParseToInt(),
                 }).ToList()
             };
         }
-
     }
 
     public async Task<List<(byte[] ByteArray, DateTime LastModified)>> GetAiFilesForFile(string folderPath, string file)

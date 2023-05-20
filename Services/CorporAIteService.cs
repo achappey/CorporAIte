@@ -285,7 +285,14 @@ public class CorporAIteService
 
     public async Task<string> GetChatNameAsync(int chatId)
     {
-        var chat = await GetChatAsync(chatId, CorporAIte.Prompts.ChatName);
+        var chat = await this._sharePointAIService.GetListChat(chatId);
+
+        chat.Messages.Add(new Message()
+        {
+            Role = "user",
+            Content = chat.SystemPrompt.ConversationNamePrompt
+        });
+
         var result = await ProcessChatAsync(chat);
 
         return result.Content;
@@ -294,6 +301,7 @@ public class CorporAIteService
     public async Task<Suggestions> GetPromptPredictionAsync(int chatId)
     {
         var chat = await GetChatAsync(chatId, CorporAIte.Prompts.PredictPrompt);
+
         var result = await ProcessChatAsync(chat);
 
         try
