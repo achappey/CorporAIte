@@ -7,7 +7,7 @@ public class ChatProfile : Profile
 {
     public ChatProfile()
     {
-        CreateMap<Message, OpenAI.GPT3.ObjectModels.RequestModels.ChatMessage>()
+        CreateMap<Message, OpenAI.ObjectModels.RequestModels.ChatMessage>()
            .AfterMap((src, dest) =>
         {
             if (src.Role == "user")
@@ -22,7 +22,7 @@ public class ChatProfile : Profile
             }
         });
 		
-        CreateMap<OpenAI.GPT3.ObjectModels.RequestModels.ChatMessage, Message>();
+        CreateMap<OpenAI.ObjectModels.RequestModels.ChatMessage, Message>();
 
         CreateMap<Microsoft.Graph.DriveItem, Folder>();
 

@@ -2,8 +2,8 @@ using System.Numerics;
 using System.Text;
 using System.Text.Json;
 using CorporAIte;
-using OpenAI.GPT3.Managers;
-using OpenAI.GPT3.ObjectModels.RequestModels;
+using OpenAI.Managers;
+using OpenAI.ObjectModels.RequestModels;
 
 public class AIService
 {
@@ -11,17 +11,17 @@ public class AIService
 
     public AIService(AppConfig config)
     {
-        this._openAIService = new OpenAI.GPT3.Managers.OpenAIService(new OpenAI.GPT3.OpenAiOptions()
+        this._openAIService = new OpenAI.Managers.OpenAIService(new OpenAI.OpenAiOptions()
         {
             ApiKey = config.OpenAI
         });
     }
 
-    private OpenAI.GPT3.ObjectModels.ResponseModels.EmbeddingCreateResponse ConvertEmbedding(byte[] embedding)
+    private OpenAI.ObjectModels.ResponseModels.EmbeddingCreateResponse ConvertEmbedding(byte[] embedding)
     {
         var responseJson = Encoding.UTF8.GetString(embedding);
 
-        return JsonSerializer.Deserialize<OpenAI.GPT3.ObjectModels.ResponseModels.EmbeddingCreateResponse>(responseJson);
+        return JsonSerializer.Deserialize<OpenAI.ObjectModels.ResponseModels.EmbeddingCreateResponse>(responseJson);
     }
 
     public List<double> CompareEmbeddings(byte[] query, List<byte[]> embeddings)
@@ -46,11 +46,11 @@ public class AIService
 
     public async Task<byte[]> CalculateEmbeddingAsync(object input)
     {
-        var embeddingRequest = new OpenAI.GPT3.ObjectModels.RequestModels.EmbeddingCreateRequest()
+        var embeddingRequest = new OpenAI.ObjectModels.RequestModels.EmbeddingCreateRequest()
         {
             Input = input is string ? input as string : null,
             InputAsList = input is List<string> ? input as List<string> : null,
-            Model = OpenAI.GPT3.ObjectModels.Models.TextEmbeddingAdaV2
+            Model = OpenAI.ObjectModels.Models.TextEmbeddingAdaV2
         };
 
         var embeddingResult = await this._openAIService.Embeddings.CreateEmbedding(embeddingRequest);
@@ -76,7 +76,8 @@ public class AIService
 
         var chatCompletionRequest = new ChatCompletionCreateRequest
         {
-            Model = OpenAI.GPT3.ObjectModels.Models.ChatGpt3_5Turbo,
+          //  Model = OpenAI.ObjectModels.Models.ChatGpt3_5Turbo,
+            Model = "gpt-3.5-turbo-16k",
             Temperature = temperature,
             Messages = messageHistory
         };

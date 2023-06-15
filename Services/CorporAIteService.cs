@@ -225,7 +225,7 @@ public class CorporAIteService
             {
                 var chatResponse = await _openAIService.ChatWithContextAsync(chat.SystemPrompt.Prompt + contextQuery,
                   chat.SystemPrompt.Temperature,
-                  chat.Messages.Select(a => _mapper.Map<OpenAI.GPT3.ObjectModels.RequestModels.ChatMessage>(a)));
+                  chat.Messages.Select(a => _mapper.Map<OpenAI.ObjectModels.RequestModels.ChatMessage>(a)));
 
                 return _mapper.Map<Message>(chatResponse);
             }
@@ -347,7 +347,7 @@ public class CorporAIteService
     {
         // Prepare chat messages for the OpenAIService
         var openAiChatMessages = chat.Messages
-            .Select(message => _mapper.Map<OpenAI.GPT3.ObjectModels.RequestModels.ChatMessage>(message));
+            .Select(message => _mapper.Map<OpenAI.ObjectModels.RequestModels.ChatMessage>(message));
 
         // Chat with context using the OpenAIService
         var chatResponse = await _openAIService.ChatWithContextAsync(
