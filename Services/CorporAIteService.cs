@@ -283,6 +283,31 @@ public class CorporAIteService
         return await ProcessChatAsync(chat);
     }
 
+    private async Task<Conversation> GetTeamsChat(string teamsId, string channelId, string messageId)
+    {
+        var messages = await this._graphService.GetAllMessagesFromConversation(teamsId, channelId, messageId);
+        var systemPrompt = await this._sharePointAIService.GetTeamsSystemPrompt();
+        //var sharePointUrl = await this._graphService.GetSharePointUrl(teamsId, channelId);
+
+        return new Conversation()
+        {
+            SystemPrompt = systemPrompt,
+            Sources = messages.SelectMany(a => a.Attachments.Select(z => z.ContentUrl)).ToList(),
+            Messages = messages.Select(z => new Message()
+            {
+                Role = z.From.User.DisplayName == "Fakton Beheerder" ? "assistant" : "user",
+                Content = z.Body.Content
+            }).ToList()
+        };
+    }
+
+    public async Task<Message> TeamsChatAsync(string teamsId, string channelId, string messageId)
+    {
+        var chat = await GetTeamsChat(teamsId, channelId, messageId);
+
+        return await ProcessChatAsync(chat);
+    }
+
     public async Task<string> GetChatNameAsync(int chatId)
     {
         var chat = await this._sharePointAIService.GetListChat(chatId);

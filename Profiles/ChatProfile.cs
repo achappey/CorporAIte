@@ -10,6 +10,7 @@ public class ChatProfile : Profile
         CreateMap<Message, OpenAI.ObjectModels.RequestModels.ChatMessage>()
            .AfterMap((src, dest) =>
         {
+            
             if (src.Role == "user")
             {
                 if (!string.IsNullOrEmpty(src.Format))

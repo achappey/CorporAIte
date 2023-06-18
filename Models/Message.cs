@@ -20,6 +20,8 @@ namespace CorporAIte.Models
         /// </summary>
         public string Content { get; set; }
 
+        public string Name { get; set; }
+
         public string Format { get; set; }
 
         public int Emotional { get; set; }

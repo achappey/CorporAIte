@@ -50,6 +50,7 @@ public class SharePointAIService
 
         return validFileName;
     }
+
     public async Task<Conversation> GetListChat(int itemId)
     {
         using (var context = _sharePointService.GetContext(_baseSiteUrl + _chatSiteUrl))
@@ -107,6 +108,25 @@ public class SharePointAIService
                     Friendly = a[FieldNames.Vriendelijk].ParseToInt(),
                 }).ToList()
             };
+        }
+    }
+
+    public async Task<SystemPrompt> GetTeamsSystemPrompt()
+    {
+        using (var context = _sharePointService.GetContext(_baseSiteUrl + _chatSiteUrl))
+        {
+            string caml = string.Format("<View><Query><Where><Eq><FieldRef Name='Title'/><Value Type='Text'>{0}</Value></Eq></Where></Query></View>", "Teams");
+
+            var messages = await context.GetListItemsFromList(_baseSiteUrl + _chatSiteUrl, "Systeem Prompts", caml);
+            var systemPrompt = messages.First();
+
+            return new SystemPrompt()
+            {
+                Prompt = systemPrompt?[FieldNames.Prompt]?.ToString(),
+                ForceVectorGeneration = true,
+                Temperature = 1
+            };
+
         }
     }
 
