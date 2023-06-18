@@ -295,7 +295,7 @@ public class CorporAIteService
             Sources = messages.SelectMany(a => a.Attachments.Select(z => z.ContentUrl)).ToList(),
             Messages = messages.Select(z => new Message()
             {
-                Role = z.From.User.DisplayName == "Fakton Beheerder" ? "assistant" : "user",
+                Role = z.From.Application != null ? "assistant" : "user",
                 Content = z.Body.Content
             }).ToList()
         };
