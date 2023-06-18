@@ -120,11 +120,13 @@ public class SharePointAIService
             var messages = await context.GetListItemsFromList(_baseSiteUrl + _chatSiteUrl, "Systeem Prompts", caml);
             var systemPrompt = messages.First();
 
+            float.TryParse(systemPrompt?[FieldNames.Temperatuur]?.ToString(), out var temperature);
+
             return new SystemPrompt()
             {
                 Prompt = systemPrompt?[FieldNames.Prompt]?.ToString(),
                 ForceVectorGeneration = true,
-                Temperature = 1
+                Temperature = temperature
             };
 
         }
