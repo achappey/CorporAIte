@@ -40,7 +40,7 @@ public class GraphService
 
         } while (repliesRequest != null);
 
-        return conversationMessages;
+        return conversationMessages.OrderBy(a => a.CreatedDateTime).ToList();
     }
 
     public async Task<List<DriveItem>> GetAllFilesFromOneDriveFolder(string userId, string folderId)

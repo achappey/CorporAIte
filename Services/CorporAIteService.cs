@@ -293,7 +293,9 @@ public class CorporAIteService
         {
             SystemPrompt = systemPrompt,
             Sources = messages.SelectMany(a => a.Attachments.Select(z => z.ContentUrl)).ToList(),
-            Messages = messages.Select(z => new Message()
+            Messages = messages
+            .Where(z => !string.IsNullOrEmpty(z.Body.Content))
+            .Select(z => new Message()
             {
                 Role = z.From.Application != null ? "assistant" : "user",
                 Content = z.Body.Content
