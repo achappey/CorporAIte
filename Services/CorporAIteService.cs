@@ -298,6 +298,7 @@ public class CorporAIteService
             .Select(z => new Message()
             {
                 Role = z.From.Application != null ? "assistant" : "user",
+                Format = "Teams",
                 Content = z.Body.Content
             }).ToList()
         };
