@@ -315,6 +315,10 @@ public class CorporAIteService
     {
         var chat = await GetTeamsChat(teamsId, channelId, messageId, replyTo, channelChat);
 
+        if(!chat.Messages.Any() || chat.Messages.Last().Role != "user") {
+            throw new NotSupportedException();
+        }
+
         return await ProcessChatAsync(chat);
     }
 
