@@ -283,11 +283,19 @@ public class CorporAIteService
         return await ProcessChatAsync(chat);
     }
 
-    private async Task<Conversation> GetTeamsChat(string teamsId, string channelId, string messageId)
+    private async Task<Conversation> GetTeamsChat(string teamsId, string channelId, string messageId, string replyTo, bool channelChat)
     {
-        var messages = await this._graphService.GetAllMessagesFromConversation(teamsId, channelId, messageId);
+        var messages = await this._graphService.GetAllMessagesFromConversation(teamsId, channelId, replyTo);
         var systemPrompt = await this._sharePointAIService.GetTeamsSystemPrompt();
-        //var sharePointUrl = await this._graphService.GetSharePointUrl(teamsId, channelId);
+        var sharePointUrl = await this._graphService.GetSharePointUrl(teamsId, channelId);
+        var sources = messages.SelectMany(a => a.Attachments.Select(z => z.ContentUrl))
+                    .Where(y => this.supportedExtensions.Contains(Path.GetExtension(y).ToLowerInvariant()))
+                    .ToList();
+
+        if (channelChat)
+        {
+            sources.Add(sharePointUrl);
+        }
 
         return new Conversation()
         {
@@ -300,15 +308,14 @@ public class CorporAIteService
             .Select(z => new Message()
             {
                 Role = z.From.Application != null ? "assistant" : "user",
-                Format = "Teams",
-                Content = z.Body.Content
+                Content = z.From.Application != null ? z.Body.Content : z.From.User.DisplayName + ": " + z.Body.Content
             }).ToList()
         };
     }
 
-    public async Task<Message> TeamsChatAsync(string teamsId, string channelId, string messageId)
+    public async Task<Message> TeamsChatAsync(string teamsId, string channelId, string messageId, string replyTo, bool channelChat)
     {
-        var chat = await GetTeamsChat(teamsId, channelId, messageId);
+        var chat = await GetTeamsChat(teamsId, channelId, messageId, replyTo, channelChat);
 
         return await ProcessChatAsync(chat);
     }
