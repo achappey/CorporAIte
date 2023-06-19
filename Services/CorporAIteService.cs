@@ -300,9 +300,7 @@ public class CorporAIteService
         return new Conversation()
         {
             SystemPrompt = systemPrompt,
-            Sources = messages.SelectMany(a => a.Attachments.Select(z => z.ContentUrl))
-            .Where(y => this.supportedExtensions.Contains(Path.GetExtension(y).ToLowerInvariant()))
-            .ToList(),
+            Sources = sources,
             Messages = messages
             .Where(z => !string.IsNullOrEmpty(z.Body.Content))
             .Select(z => new Message()
