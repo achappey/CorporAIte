@@ -283,7 +283,7 @@ public class CorporAIteService
         return await ProcessChatAsync(chat);
     }
 
-    private async Task<Conversation> GetTeamsChat(string teamsId, string channelId, string messageId, string replyTo, bool channelChat)
+    private async Task<Conversation> GetTeamsChannelChat(string teamsId, string channelId, string messageId, string replyTo, bool channelChat)
     {
         var messages = await this._graphService.GetAllMessagesFromConversation(teamsId, channelId, replyTo);
         var systemPrompt = await this._sharePointAIService.GetTeamsSystemPrompt();
@@ -311,9 +311,43 @@ public class CorporAIteService
         };
     }
 
-    public async Task<Message> TeamsChatAsync(string teamsId, string channelId, string messageId, string replyTo, bool channelChat)
+    
+    private async Task<Conversation> GetTeamsChat(string chatId)
     {
-        var chat = await GetTeamsChat(teamsId, channelId, messageId, replyTo, channelChat);
+        var messages = await this._graphService.GetAllMessagesFromChat(chatId);
+        var systemPrompt = await this._sharePointAIService.GetTeamsSystemPrompt();
+        var sources = messages.SelectMany(a => a.Attachments.Select(z => z.ContentUrl))
+                    .Where(y => this.supportedExtensions.Contains(Path.GetExtension(y).ToLowerInvariant()))
+                    .ToList();
+
+        return new Conversation()
+        {
+            SystemPrompt = systemPrompt,
+            Sources = sources,
+            Messages = messages
+            .Where(z => z.From != null && !string.IsNullOrEmpty(z.Body.Content))
+            .Select(z => new Message()
+            {
+                Role = z.From.Application != null ? "assistant" : "user",
+                Content = z.From.Application != null ? z.Body.Content : z.From.User.DisplayName + ": " + z.Body.Content
+            }).ToList()
+        };
+    }
+
+    public async Task<Message> TeamsChatAsync(string chatId)
+    {
+        var chat = await GetTeamsChat(chatId);
+
+        if(!chat.Messages.Any() || chat.Messages.Last().Role != "user") {
+            throw new NotSupportedException();
+        }
+
+        return await ProcessChatAsync(chat);
+    }
+
+    public async Task<Message> TeamsChannelChatAsync(string teamsId, string channelId, string messageId, string replyTo, bool channelChat)
+    {
+        var chat = await GetTeamsChannelChat(teamsId, channelId, messageId, replyTo, channelChat);
 
         if(!chat.Messages.Any() || chat.Messages.Last().Role != "user") {
             throw new NotSupportedException();

@@ -13,6 +13,30 @@ public class GraphService
     {
         return new List<string>();
     }
+    
+    public async Task<List<ChatMessage>> GetAllMessagesFromChat(string chatId)
+    {
+        List<ChatMessage> chatMessages = new List<ChatMessage>();
+
+        // Get all messages in the chat.
+        var messagesRequest = _graph.Chats[chatId].Messages.Request();
+        do
+        {
+            var messagesPage = await messagesRequest.GetAsync();
+
+            // Add each message's content to the list.
+            foreach (var message in messagesPage)
+            {
+                chatMessages.Add(message);
+            }
+
+            // Get the next page of messages, if there is one.
+            messagesRequest = messagesPage.NextPageRequest;
+
+        } while (messagesRequest != null);
+
+        return chatMessages.OrderBy(a => a.CreatedDateTime).ToList();
+    }
 
     public async Task<List<ChatMessage>> GetAllMessagesFromConversation(string teamId, string channelId, string messageId)
     {

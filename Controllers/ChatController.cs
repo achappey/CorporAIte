@@ -5,27 +5,26 @@ namespace CorporAIte.Controllers;
 
 [ApiController]
 [Route("[controller]")]
-public class TeamsChatController : ControllerBase
+public class ChatController : ControllerBase
 {
-    private readonly ILogger<TeamsChatController> _logger;
+    private readonly ILogger<ChatController> _logger;
 
     private readonly CorporAIteService _corporAiteService;
 
-    public TeamsChatController(ILogger<TeamsChatController> logger, CorporAIteService corporAiteService)
+    public ChatController(ILogger<ChatController> logger, CorporAIteService corporAiteService)
     {
         _logger = logger;
         _corporAiteService = corporAiteService;
     }
 
-    [HttpGet(Name = "TeamsChat")]
+    [HttpGet(Name = "Chat")]
     [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(Message))]
     [Produces("application/json")]
-    public async Task<IActionResult> TeamsChat([FromQuery] string teamsId, [FromQuery] string channelId, 
-        [FromQuery] string messageId, [FromQuery] string replyToId, [FromQuery] bool channelChat)
+    public async Task<IActionResult> Chat([FromQuery] string chatId)
     {
         try
         {
-            var result = await _corporAiteService.TeamsChannelChatAsync(teamsId, channelId, messageId, replyToId, channelChat);
+            var result = await _corporAiteService.TeamsChatAsync(chatId);
 
             return Ok(result);
         }
