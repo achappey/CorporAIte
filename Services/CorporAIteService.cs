@@ -280,6 +280,7 @@ public class CorporAIteService
     public async Task<Message> ListChatAsync(int chatId)
     {
         var chat = await GetChatAsync(chatId);
+
         return await ProcessChatAsync(chat);
     }
 
@@ -288,7 +289,8 @@ public class CorporAIteService
         var messages = await this._graphService.GetAllMessagesFromConversation(teamsId, channelId, replyTo);
         var systemPrompt = await this._sharePointAIService.GetTeamsSystemPrompt();
         var sharePointUrl = await this._graphService.GetSharePointUrl(teamsId, channelId);
-        var sources = messages.SelectMany(a => a.Attachments.Select(z => z.ContentUrl))
+
+        var sources = messages.SelectMany(a => a.Attachments.Where(z => !string.IsNullOrEmpty(z.ContentUrl)).Select(z => z.ContentUrl))
                     .Where(y => this.supportedExtensions.Contains(Path.GetExtension(y).ToLowerInvariant()))
                     .ToList();
 
@@ -311,12 +313,13 @@ public class CorporAIteService
         };
     }
 
-    
+
     private async Task<Conversation> GetTeamsChat(string chatId)
     {
         var messages = await this._graphService.GetAllMessagesFromChat(chatId);
         var systemPrompt = await this._sharePointAIService.GetTeamsSystemPrompt();
-        var sources = messages.SelectMany(a => a.Attachments.Select(z => z.ContentUrl))
+
+        var sources = messages.SelectMany(a => a.Attachments.Where(z => !string.IsNullOrEmpty(z.ContentUrl)).Select(z => z.ContentUrl))
                     .Where(y => this.supportedExtensions.Contains(Path.GetExtension(y).ToLowerInvariant()))
                     .ToList();
 
@@ -338,7 +341,8 @@ public class CorporAIteService
     {
         var chat = await GetTeamsChat(chatId);
 
-        if(!chat.Messages.Any() || chat.Messages.Last().Role != "user") {
+        if (!chat.Messages.Any() || chat.Messages.Last().Role != "user")
+        {
             throw new NotSupportedException();
         }
 
@@ -349,7 +353,8 @@ public class CorporAIteService
     {
         var chat = await GetTeamsChannelChat(teamsId, channelId, messageId, replyTo, channelChat);
 
-        if(!chat.Messages.Any() || chat.Messages.Last().Role != "user") {
+        if (!chat.Messages.Any() || chat.Messages.Last().Role != "user")
+        {
             throw new NotSupportedException();
         }
 

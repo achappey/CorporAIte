@@ -13,7 +13,7 @@ public class GraphService
     {
         return new List<string>();
     }
-    
+
     public async Task<List<ChatMessage>> GetAllMessagesFromChat(string chatId)
     {
         List<ChatMessage> chatMessages = new List<ChatMessage>();
@@ -37,6 +37,7 @@ public class GraphService
 
         return chatMessages.OrderBy(a => a.CreatedDateTime).ToList();
     }
+    
 
     public async Task<List<ChatMessage>> GetAllMessagesFromConversation(string teamId, string channelId, string messageId)
     {
