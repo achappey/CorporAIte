@@ -310,7 +310,7 @@ public class CorporAIteService
 
             var tabSources = tabs.Select(a => a.Configuration.ContentUrl.ExtractContentSource())
             .Where(a => !string.IsNullOrEmpty(a))
-            .Select(a => a.StartsWith("https://www.onenote.com/api/v1.0/myOrganization/siteCollections/") ? a + "/teams/" + teamsId + ".onenote" : a)
+            .Select(a => a.StartsWith("https://www.onenote.com/") ? a + "/teams/" + teamsId + ".onenote" : a)
             .Where(y => this.supportedExtensions.Contains(Path.GetExtension(y).ToLowerInvariant()))
             .ToList();
 

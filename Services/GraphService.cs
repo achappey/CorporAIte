@@ -40,12 +40,10 @@ public class GraphService
                                     .Where(n => n.Name == "p" || n.Name == "li")
                                     .Select(n => n.InnerText)
                                     .ToList();
+
                     paragraphs.AddRange(pageParagraphs);
                 }
-
-
             }
-
         }
 
         return paragraphs;
