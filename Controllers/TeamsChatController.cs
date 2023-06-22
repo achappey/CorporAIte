@@ -21,11 +21,11 @@ public class TeamsChatController : ControllerBase
     [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(Message))]
     [Produces("application/json")]
     public async Task<IActionResult> TeamsChat([FromQuery] string teamsId, [FromQuery] string channelId, 
-        [FromQuery] string messageId, [FromQuery] string replyToId, [FromQuery] bool channelChat)
+        [FromQuery] string messageId, [FromQuery] string replyToId, [FromQuery] bool channelChat, [FromQuery] bool tabChat)
     {
         try
         {
-            var result = await _corporAiteService.TeamsChannelChatAsync(teamsId, channelId, messageId, replyToId, channelChat);
+            var result = await _corporAiteService.TeamsChannelChatAsync(teamsId, channelId, messageId, replyToId, channelChat, tabChat);
 
             return Ok(result);
         }

@@ -1,3 +1,4 @@
+using HtmlAgilityPack;
 using Microsoft.Graph;
 
 public class GraphService
@@ -12,6 +13,42 @@ public class GraphService
     public List<string> GetOneDriveFiles()
     {
         return new List<string>();
+    }
+
+    public async Task<List<string>> GetNotebookContent(string teamsId, string notebookId)
+    {
+        // Get all the users in the tenant
+        var notebook = await _graph.Groups[teamsId].Onenote.Notebooks[notebookId].Sections.Request().GetAsync();
+
+        // List to store all the paragraphs
+        List<string> paragraphs = new List<string>();
+
+        // For each user, get their notebooks
+        foreach (var section in notebook)
+        {
+            var pages = await _graph.Groups[teamsId].Onenote.Sections[section.Id].Pages.Request().GetAsync();
+
+            foreach (var page in pages)
+            {
+                var content = await _graph.Groups[teamsId].Onenote.Pages[page.Id].Content.Request().GetAsync();
+
+                using (StreamReader reader = new StreamReader(content))
+                {
+                    var htmlDoc = new HtmlDocument();
+                    htmlDoc.LoadHtml(await reader.ReadToEndAsync());
+                    var pageParagraphs = htmlDoc.DocumentNode.Descendants()
+                                    .Where(n => n.Name == "p" || n.Name == "li")
+                                    .Select(n => n.InnerText)
+                                    .ToList();
+                    paragraphs.AddRange(pageParagraphs);
+                }
+
+
+            }
+
+        }
+
+        return paragraphs;
     }
 
     public async Task<List<ChatMessage>> GetAllMessagesFromChat(string chatId)
@@ -37,7 +74,7 @@ public class GraphService
 
         return chatMessages.OrderBy(a => a.CreatedDateTime).ToList();
     }
-    
+
 
     public async Task<List<ChatMessage>> GetAllMessagesFromConversation(string teamId, string channelId, string messageId)
     {
@@ -67,6 +104,31 @@ public class GraphService
 
         return conversationMessages.OrderBy(a => a.CreatedDateTime).ToList();
     }
+
+    public async Task<List<TeamsTab>> GetAllTabsFromChannel(string teamId, string channelId)
+    {
+        List<TeamsTab> channelTabs = new List<TeamsTab>();
+
+        // Get all tabs in the channel
+        var tabsRequest = _graph.Teams[teamId].Channels[channelId].Tabs.Request();
+        do
+        {
+            var tabsPage = await tabsRequest.GetAsync();
+
+            // Add each tab to the list.
+            foreach (var tab in tabsPage)
+            {
+                channelTabs.Add(tab);
+            }
+
+            // Get the next page of tabs, if there is one.
+            tabsRequest = tabsPage.NextPageRequest;
+
+        } while (tabsRequest != null);
+
+        return channelTabs;
+    }
+
 
     public async Task<List<DriveItem>> GetAllFilesFromOneDriveFolder(string userId, string folderId)
     {

@@ -1,11 +1,87 @@
 
+using System.Web;
 using Microsoft.SharePoint.Client;
+using Newtonsoft.Json.Linq;
 
 namespace CorporAIte.Extensions
 {
     public static class SharePointExtensions
     {
 
+        public static (string? notebookId, string? teamsId) ExtractOneNote(this string url)
+        {
+            var uri = new Uri(url);
+            var segments = uri.AbsolutePath.Split('/');
+
+            string notebookId = null;
+            string teamId = null;
+
+            for (int i = 0; i < segments.Length; i++)
+            {
+                if (segments[i] == "notebooks" && i + 1 < segments.Length)
+                {
+                    notebookId = segments[i + 1];
+                }
+                else if (segments[i] == "teams" && i + 1 < segments.Length)
+                {
+                    teamId = segments[i + 1].Split(".").First();
+                }
+            }
+
+            return (notebookId, teamId);
+        }
+
+
+        public static string ExtractUrlParameter(this string url, string parameterName)
+        {
+            try
+            {
+                var uri = new Uri(url);
+                var queryParameters = HttpUtility.ParseQueryString(uri.Query);
+                var parameterValue = queryParameters[parameterName];
+
+                // Check if the parameter value is a JSON object
+                if (parameterValue.StartsWith("{"))  // %7B = {
+                {
+                    // URL-decode and parse as JSON
+                    //  var jsonStr = HttpUtility.UrlDecode(parameterValue);
+                    var jsonObj = JObject.Parse(parameterValue);
+                    // Extract objectUrl from the JSON object
+                    var urlValue = jsonObj["objectUrl"]?.ToString();
+                    return urlValue;
+                }
+                else
+                {
+                    // Directly return the URL-decoded parameter value
+                    return HttpUtility.UrlDecode(parameterValue);
+                }
+            }
+            catch (Exception)
+            {
+                // Handle any exceptions that occur during parsing, if necessary
+                return null;
+            }
+        }
+
+        public static string ExtractContentSource(this string url)
+        {
+            var notebookSelfUrl = url.ExtractUrlParameter("notebookSelfUrl");
+
+            if (!string.IsNullOrEmpty(notebookSelfUrl))
+            {
+                return notebookSelfUrl;
+            }
+
+            var objectUrl = url.ExtractUrlParameter("subEntityId");
+
+            if (!string.IsNullOrEmpty(objectUrl))
+            {
+                return objectUrl;
+            }
+
+            return null;
+
+        }
 
         public static async Task UploadLargeFileAsync(this ClientContext context, Folder folder, byte[] fileBytes, string fileName, int blockSize, string folderUrl)
         {

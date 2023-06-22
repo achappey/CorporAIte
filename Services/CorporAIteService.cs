@@ -19,7 +19,7 @@ public class CorporAIteService
     private readonly IMapper _mapper;
 
     private readonly List<string> supportedExtensions = new List<string> { ".aspx",
-        ".docx", ".csv", ".pdf", ".pptx", ".txt", ".url", ".msg" };
+        ".docx", ".csv", ".pdf", ".pptx", ".txt", ".url", ".msg", ".onenote" };
 
     private readonly HttpClient _httpClient;
 
@@ -78,6 +78,10 @@ public class CorporAIteService
 
         switch (extension)
         {
+            case ".onenote":
+                var noteBookId = (siteUrl + file).ExtractOneNote();
+
+                return await _graphService.GetNotebookContent(noteBookId.teamsId, noteBookId.notebookId);
             case ".aspx":
                 return await _sharePointService.GetSharePointPageTextAsync(siteUrl, file);
 
@@ -144,15 +148,15 @@ public class CorporAIteService
             var folder = fileUrl.GetParentFolderFromServerRelativeUrl();
             var siteUrl = fileUrl.GetSiteUrlFromFullUrl();
 
-            var fileInfo = await _sharePointAIService.GetFileInfoAsync(siteUrl, fileUrl.RemoveBaseUrl()).ConfigureAwait(false);
+       /*     var fileInfo = await _sharePointAIService.GetFileInfoAsync(siteUrl, fileUrl.RemoveBaseUrl()).ConfigureAwait(false);
             if (fileInfo == null)
             {
                 return Enumerable.Empty<dynamic>();
             }
 
-            var (serverRelativeUrl, lastModified) = fileInfo.Value;
+            var (serverRelativeUrl, lastModified) = fileInfo.Value;*/
 
-            return await ProcessFilesAsync(folder, siteUrl, new List<(string ServerRelativeUrl, DateTime LastModified)> { (serverRelativeUrl, lastModified) }, queryEmbedding, forceVectorGeneration).ConfigureAwait(false);
+            return await ProcessFilesAsync(folder, siteUrl, new List<(string ServerRelativeUrl, DateTime LastModified)> { (fileUrl.RemoveBaseUrl(), new DateTime()) }, queryEmbedding, forceVectorGeneration).ConfigureAwait(false);
         });
 
         // Wait for all file tasks to complete and concatenate the results
@@ -182,7 +186,8 @@ public class CorporAIteService
     {
         var fileTasks = files.Select(async file =>
         {
-            var aiFiles = await this._sharePointAIService.GetAiFilesForFile(folder, Path.GetFileName(file.ServerRelativeUrl)).ConfigureAwait(false);
+         //   var aiFiles = await this._sharePointAIService.GetAiFilesForFile(folder, Path.GetFileName(file.ServerRelativeUrl)).ConfigureAwait(false);
+            List<(byte[] ByteArray, DateTime LastModified)> aiFiles =  null;
             var lines = await GetLinesAsync(siteUrl, file.ServerRelativeUrl).ConfigureAwait(false);
 
             if (lines == null || !lines.Any())
@@ -204,7 +209,7 @@ public class CorporAIteService
 
             return lines.Select((line, index) => new
             {
-                Path = file.ServerRelativeUrl,
+                Path = siteUrl + file.ServerRelativeUrl,
                 Text = line,
                 Score = scores.ElementAt(index)
             });
@@ -284,11 +289,10 @@ public class CorporAIteService
         return await ProcessChatAsync(chat);
     }
 
-    private async Task<Conversation> GetTeamsChannelChat(string teamsId, string channelId, string messageId, string replyTo, bool channelChat)
+    private async Task<Conversation> GetTeamsChannelChat(string teamsId, string channelId, string messageId, string replyTo, bool channelChat, bool tabChat)
     {
         var messages = await this._graphService.GetAllMessagesFromConversation(teamsId, channelId, replyTo);
         var systemPrompt = await this._sharePointAIService.GetTeamsSystemPrompt();
-        var sharePointUrl = await this._graphService.GetSharePointUrl(teamsId, channelId);
 
         var sources = messages.SelectMany(a => a.Attachments.Where(z => !string.IsNullOrEmpty(z.ContentUrl)).Select(z => z.ContentUrl))
                     .Where(y => this.supportedExtensions.Contains(Path.GetExtension(y).ToLowerInvariant()))
@@ -296,7 +300,21 @@ public class CorporAIteService
 
         if (channelChat)
         {
+            var sharePointUrl = await this._graphService.GetSharePointUrl(teamsId, channelId);
             sources.Add(sharePointUrl);
+        }
+
+        if (tabChat)
+        {
+            var tabs = await this._graphService.GetAllTabsFromChannel(teamsId, channelId);
+
+            var tabSources = tabs.Select(a => a.Configuration.ContentUrl.ExtractContentSource())
+            .Where(a => !string.IsNullOrEmpty(a))
+            .Select(a => a.StartsWith("https://www.onenote.com/api/v1.0/myOrganization/siteCollections/") ? a + "/teams/" + teamsId + ".onenote" : a)
+            .Where(y => this.supportedExtensions.Contains(Path.GetExtension(y).ToLowerInvariant()))
+            .ToList();
+
+            sources.AddRange(tabSources);
         }
 
         return new Conversation()
@@ -349,9 +367,9 @@ public class CorporAIteService
         return await ProcessChatAsync(chat);
     }
 
-    public async Task<Message> TeamsChannelChatAsync(string teamsId, string channelId, string messageId, string replyTo, bool channelChat)
+    public async Task<Message> TeamsChannelChatAsync(string teamsId, string channelId, string messageId, string replyTo, bool channelChat, bool tabChat)
     {
-        var chat = await GetTeamsChannelChat(teamsId, channelId, messageId, replyTo, channelChat);
+        var chat = await GetTeamsChannelChat(teamsId, channelId, messageId, replyTo, channelChat, tabChat);
 
         if (!chat.Messages.Any() || chat.Messages.Last().Role != "user")
         {
