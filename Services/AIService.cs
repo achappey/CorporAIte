@@ -65,7 +65,9 @@ public class AIService
         return jsonBytes;
     }
 
-    public async Task<ChatMessage> ChatWithContextAsync(string context, float temperature, IEnumerable<ChatMessage> messages)
+    public async Task<ChatMessage> ChatWithContextAsync(string context, float temperature, 
+    IEnumerable<ChatMessage> messages, 
+    IEnumerable<FunctionDefinition>? functions)
     {
         var messageHistory = new List<ChatMessage>(messages.Count() + 1)
     {
@@ -76,10 +78,10 @@ public class AIService
 
         var chatCompletionRequest = new ChatCompletionCreateRequest
         {
-          //  Model = OpenAI.ObjectModels.Models.ChatGpt3_5Turbo,
-            Model = "gpt-3.5-turbo-16k",
+            Model = OpenAI.ObjectModels.Models.Gpt_3_5_Turbo_16k,
             Temperature = temperature,
-            Messages = messageHistory
+            Messages = messageHistory,
+            Functions = functions?.ToList(),
         };
 
         var response = await _openAIService.ChatCompletion.CreateCompletion(chatCompletionRequest).ConfigureAwait(false);

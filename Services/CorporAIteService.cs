@@ -1,6 +1,7 @@
 using AutoMapper;
 using CorporAIte.Extensions;
 using CorporAIte.Models;
+using OpenAI.ObjectModels.RequestModels;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -230,7 +231,8 @@ public class CorporAIteService
             {
                 var chatResponse = await _openAIService.ChatWithContextAsync(chat.SystemPrompt.Prompt + contextQuery,
                   chat.SystemPrompt.Temperature,
-                  chat.Messages.Select(a => _mapper.Map<OpenAI.ObjectModels.RequestModels.ChatMessage>(a)));
+                  chat.Messages.Select(a => _mapper.Map<OpenAI.ObjectModels.RequestModels.ChatMessage>(a)), 
+                  chat.Functions);
 
                 return _mapper.Map<Message>(chatResponse);
             }
@@ -298,9 +300,10 @@ public class CorporAIteService
                     .Where(y => this.supportedExtensions.Contains(Path.GetExtension(y).ToLowerInvariant()))
                     .ToList();
 
+        var sharePointUrl = await this._graphService.GetSharePointUrl(teamsId, channelId);
+
         if (channelChat)
         {
-            var sharePointUrl = await this._graphService.GetSharePointUrl(teamsId, channelId);
             sources.Add(sharePointUrl);
         }
 
@@ -317,17 +320,46 @@ public class CorporAIteService
             sources.AddRange(tabSources);
         }
 
+        List<FunctionDefinition>? functions = null;
+
+        var chatMesages = messages
+            .Where(z => !string.IsNullOrEmpty(z.Body.Content))
+            .Select(z => new Message()
+            {
+                Role = z.From.Application != null ? "assistant" : "user",
+                Created = z.CreatedDateTime,
+                Content = z.From.Application != null ? z.Body.Content : z.From.User.DisplayName + ": " + z.Body.Content
+            }).ToList();
+
+        try {
+            functions = await this._sharePointAIService.GetFunctions(sharePointUrl.GetSiteUrlFromFullUrl());
+
+            var functionRequests = await this._sharePointAIService.GetFunctionRequests(sharePointUrl.GetSiteUrlFromFullUrl(), channelId, replyTo);
+            var functionResults = await this._sharePointAIService.GetFunctionResults(sharePointUrl.GetSiteUrlFromFullUrl(), channelId, replyTo);
+
+            chatMesages.AddRange(functionRequests);
+
+            chatMesages.AddRange(functionResults);
+
+            chatMesages = chatMesages.OrderBy(a => a.Created).ToList();
+        }
+        catch(Exception e) {
+
+        }
+
         return new Conversation()
         {
             SystemPrompt = systemPrompt,
             Sources = sources,
-            Messages = messages
+            Messages = chatMesages,
+            Functions = functions,
+          /*  Messages = messages
             .Where(z => !string.IsNullOrEmpty(z.Body.Content))
             .Select(z => new Message()
             {
                 Role = z.From.Application != null ? "assistant" : "user",
                 Content = z.From.Application != null ? z.Body.Content : z.From.User.DisplayName + ": " + z.Body.Content
-            }).ToList()
+            }).ToList()*/
         };
     }
 
@@ -359,7 +391,7 @@ public class CorporAIteService
     {
         var chat = await GetTeamsChat(chatId);
 
-        if (!chat.Messages.Any() || chat.Messages.Last().Role != "user")
+        if (!chat.Messages.Any() || chat.Messages.Last().Role == "assistant")
         {
             throw new NotSupportedException();
         }
@@ -371,7 +403,7 @@ public class CorporAIteService
     {
         var chat = await GetTeamsChannelChat(teamsId, channelId, messageId, replyTo, channelChat, tabChat);
 
-        if (!chat.Messages.Any() || chat.Messages.Last().Role != "user")
+        if (!chat.Messages.Any() || chat.Messages.Last().Role == "assistant")
         {
             throw new NotSupportedException();
         }
@@ -449,7 +481,8 @@ public class CorporAIteService
         var chatResponse = await _openAIService.ChatWithContextAsync(
             chat.SystemPrompt.Prompt,
             chat.SystemPrompt.Temperature,
-            openAiChatMessages);
+            openAiChatMessages, 
+            chat.Functions);
 
         // Map the response to the ChatMessage model
         return _mapper.Map<Message>(chatResponse);

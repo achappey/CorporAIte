@@ -10,7 +10,9 @@ public class ChatProfile : Profile
         CreateMap<Message, OpenAI.ObjectModels.RequestModels.ChatMessage>();
         CreateMap<OpenAI.ObjectModels.RequestModels.ChatMessage, Message>();
 
-        CreateMap<Microsoft.Graph.DriveItem, Folder>();
+        CreateMap<OpenAI.ObjectModels.RequestModels.FunctionCall, FunctionCall>();
+        CreateMap<FunctionCall, OpenAI.ObjectModels.RequestModels.FunctionCall>();
 
+        CreateMap<Microsoft.Graph.DriveItem, Folder>();
     }
 }

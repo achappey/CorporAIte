@@ -242,7 +242,7 @@ namespace CorporAIte.Extensions
             return listItem.AttachmentFiles;
         }
 
-        public static async Task<IEnumerable<ListItem>> GetListItemsFromList(this ClientContext context, string siteUrl, string listTitle, string caml)
+        public static async Task<IEnumerable<ListItem>> GetListItemsFromList(this ClientContext context, string listTitle, string caml)
         {
             var web = context.Web;
             var list = web.Lists.GetByTitle(listTitle);
@@ -260,7 +260,7 @@ namespace CorporAIte.Extensions
         }
 
 
-        public static async Task<ListItem> GetListItemFromList(this ClientContext context, string siteUrl, string listTitle, int itemId)
+        public static async Task<ListItem> GetListItemFromList(this ClientContext context, string listTitle, int itemId)
         {
             var web = context.Web;
             var list = web.Lists.GetByTitle(listTitle);

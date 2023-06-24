@@ -1,6 +1,7 @@
 public static class FieldNames
 {
     public const string Conversatie = "Conversatie";
+    public const string Channel = "Kanaal";
     public const string Created = "Created";
     public const string SysteemPrompt = "Systeem_x0020_Prompt";
     public const string Prompt = "Prompt";

@@ -3,6 +3,7 @@ using CorporAIte;
 using CorporAIte.Extensions;
 using CorporAIte.Models;
 using Microsoft.SharePoint.Client;
+using OpenAI.ObjectModels.RequestModels;
 
 public class SharePointAIService
 {
@@ -16,6 +17,7 @@ public class SharePointAIService
     private readonly string _chatSiteUrl;
     private readonly string _baseSiteUrl;
     private readonly ICacheService _cacheService;
+
     public SharePointAIService(ILogger<SharePointAIService> logger,
     AIService openAIService,
     SharePointService _sharePoint,
@@ -55,7 +57,7 @@ public class SharePointAIService
     {
         using (var context = _sharePointService.GetContext(_baseSiteUrl + _chatSiteUrl))
         {
-            var conversation = await context.GetListItemFromList(_baseSiteUrl + _chatSiteUrl, "Conversaties", itemId);
+            var conversation = await context.GetListItemFromList("Conversaties", itemId);
             var attachments = await context.GetAttachmentsFromListItem(_baseSiteUrl + _chatSiteUrl, "Conversaties", itemId);
             var sources = attachments.Select(a => _baseSiteUrl + a.ServerRelativeUrl).ToList();
 
@@ -64,7 +66,7 @@ public class SharePointAIService
                 sources.Add(conversation[FieldNames.Map].ToString());
             }
 
-            var messages = await context.GetListItemsFromList(_baseSiteUrl + _chatSiteUrl, "Berichten", $@"
+            var messages = await context.GetListItemsFromList("Berichten", $@"
             <View>
                 <Query>
                     <Where>
@@ -80,7 +82,7 @@ public class SharePointAIService
             </View>");
 
             var lookupId = (conversation?[FieldNames.SysteemPrompt] as FieldLookupValue)?.LookupId;
-            var systemPrompt = await context.GetListItemFromList(_baseSiteUrl + _chatSiteUrl, "Systeem Prompts", lookupId.GetValueOrDefault());
+            var systemPrompt = await context.GetListItemFromList("Systeem Prompts", lookupId.GetValueOrDefault());
 
             float.TryParse(systemPrompt?[FieldNames.Temperatuur]?.ToString(), out var temperature);
             bool.TryParse(systemPrompt?[FieldNames.Altijdvectorsgenereren]?.ToString(), out var forceVectorGeneration);
@@ -111,13 +113,151 @@ public class SharePointAIService
         }
     }
 
+
+    public async Task<List<FunctionDefinition>> GetFunctions(string siteUrl)
+    {
+        List<FunctionDefinition> result = new List<FunctionDefinition>();
+
+        using (var context = _sharePointService.GetContext(siteUrl))
+        {
+            var items = await context.GetListItemsFromList("Functies", CamlQuery.CreateAllItemsQuery().ViewXml);
+
+            foreach (var item in items)
+            {
+                var list = context.Web.GetListByTitle(item["Lijst"].ToString());
+
+                context.Load(list, f => f.Description, f => f.DefaultView);
+                await context.ExecuteQueryRetryAsync();
+
+                var view = list.GetView(list.DefaultView.Id);
+
+                context.Load(view, c => c.ViewFields);
+                await context.ExecuteQueryRetryAsync();
+
+                var fields = list.GetFields(view.ViewFields.ToArray());
+
+                result.Add(new FunctionDefinition()
+                {
+                    Name = item["Title"].ToString(),
+                    Description = list.Description,
+                    Parameters = new FunctionParameters()
+                    {
+                        Properties = fields.ToDictionary(
+                field => field.Title,
+                field => new FunctionParameterPropertyValue
+                {
+                    //Type = field.TypeAsString,
+                    Type = "string",
+                    Description = field.Description
+                }),
+                        Required = fields.Select(a => a.Title).ToList()
+                    }
+                });
+
+            }
+
+        }
+
+        return result;
+    }
+
+    public async Task<IEnumerable<Message>> GetFunctionRequests(string siteUrl, string channelId, string messageId)
+    {
+        List<Message> result = new List<Message>();
+
+        using (var context = _sharePointService.GetContext(siteUrl))
+        {
+            var items = await context.GetListItemsFromList("Functie verzoeken", $@"
+            <View>
+                <Query>
+                    <Where>
+                    <And>
+                        <Eq>
+                            <FieldRef Name='{FieldNames.Conversatie}' />
+                            <Value Type='Text'>{messageId}</Value>
+                        </Eq>
+                          <Eq>
+                            <FieldRef Name='Title' />
+                            <Value Type='Text'>{channelId}</Value>
+                        </Eq>
+                        </And>
+                    </Where>
+                    <OrderBy>
+                        <FieldRef Name='{FieldNames.Created}' Ascending='TRUE' />
+                    </OrderBy>
+                </Query>
+            </View>");
+
+            foreach (var item in items)
+            {
+                result.Add(new Message()
+                {
+                    Role = "assistant",
+                    Content = "",
+                    Created = Convert.ToDateTime(item[FieldNames.Created]),
+                    FunctionCall = new CorporAIte.Models.FunctionCall()
+                    {
+                        Name = (item["Functie"] as FieldLookupValue).LookupValue,
+                        Arguments = item["Argumenten"].ToString()
+                    }
+                });
+            }
+
+        }
+
+        return result;
+    }
+
+    public async Task<IEnumerable<Message>> GetFunctionResults(string siteUrl, string channelId, string messageId)
+    {
+        List<Message> result = new List<Message>();
+
+        using (var context = _sharePointService.GetContext(siteUrl))
+        {
+            var items = await context.GetListItemsFromList("Functie resultaten", $@"
+            <View>
+                <Query>
+                    <Where>
+                    <And>
+                        <Eq>
+                            <FieldRef Name='{FieldNames.Conversatie}' />
+                            <Value Type='Text'>{messageId}</Value>
+                        </Eq>
+                          <Eq>
+                            <FieldRef Name='{FieldNames.Channel}' />
+                            <Value Type='Text'>{channelId}</Value>
+                        </Eq>
+                        </And>
+                    </Where>
+                    <OrderBy>
+                        <FieldRef Name='{FieldNames.Created}' Ascending='TRUE' />
+                    </OrderBy>
+                </Query>
+            </View>");
+
+            foreach (var item in items)
+            {
+                result.Add(new Message()
+                {
+                    Role = "function",
+                    Name = item["Title"].ToString(),
+                    Created = Convert.ToDateTime(item[FieldNames.Created]),
+                    Content = item["Resultaat"].ToString()
+                });
+            }
+
+        }
+
+        return result;
+    }
+
     public async Task<SystemPrompt> GetTeamsSystemPrompt()
     {
         using (var context = _sharePointService.GetContext(_baseSiteUrl + _chatSiteUrl))
         {
             string caml = string.Format("<View><Query><Where><Eq><FieldRef Name='Title'/><Value Type='Text'>{0}</Value></Eq></Where></Query></View>", "Teams");
 
-            var messages = await context.GetListItemsFromList(_baseSiteUrl + _chatSiteUrl, "Systeem Prompts", caml);
+            var messages = await context.GetListItemsFromList("Systeem Prompts", caml);
             var systemPrompt = messages.First();
 
             float.TryParse(systemPrompt?[FieldNames.Temperatuur]?.ToString(), out var temperature);
@@ -177,8 +317,6 @@ public class SharePointAIService
                 {
                     List<string> currentBatch = lines.Take(batchSize).ToList();
                     byte[] embeddings = await _openAIService.CalculateEmbeddingAsync(currentBatch);
-                    string fileNameWithSuffix = MakeValidSharePointFileName($"{folderPath}{Path.GetFileName(fileName)}-{suffix}") + ".ai";
-                    //await _sharePointService.UploadFileToSharePointAsync(embeddings, this._baseSiteUrl + this._vectorSiteUrl, this._vectorFolderUrl, fileNameWithSuffix);
 
                     uploadedFiles.Add((embeddings, DateTime.Now));
                     lines = lines.Skip(batchSize).ToList();
