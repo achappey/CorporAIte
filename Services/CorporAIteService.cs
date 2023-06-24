@@ -353,13 +353,6 @@ public class CorporAIteService
             Sources = sources,
             Messages = chatMesages,
             Functions = functions,
-          /*  Messages = messages
-            .Where(z => !string.IsNullOrEmpty(z.Body.Content))
-            .Select(z => new Message()
-            {
-                Role = z.From.Application != null ? "assistant" : "user",
-                Content = z.From.Application != null ? z.Body.Content : z.From.User.DisplayName + ": " + z.Body.Content
-            }).ToList()*/
         };
     }
 

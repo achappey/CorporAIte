@@ -197,7 +197,7 @@ public class SharePointAIService
                     Created = Convert.ToDateTime(item[FieldNames.Created]),
                     FunctionCall = new CorporAIte.Models.FunctionCall()
                     {
-                        Name = (item["Functie"] as FieldLookupValue).LookupValue,
+                        Name = item["Naam"].ToString(),
                         Arguments = item["Argumenten"].ToString()
                     }
                 });
