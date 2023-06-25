@@ -332,7 +332,7 @@ public class CorporAIteService
             }).ToList();
 
         try {
-            functions = await this._sharePointAIService.GetFunctions(sharePointUrl.GetSiteUrlFromFullUrl());
+            functions = await this._sharePointAIService.GetAllFunctions(sharePointUrl.GetSiteUrlFromFullUrl());
 
             var functionRequests = await this._sharePointAIService.GetFunctionRequests(sharePointUrl.GetSiteUrlFromFullUrl(), channelId, replyTo);
             var functionResults = await this._sharePointAIService.GetFunctionResults(sharePointUrl.GetSiteUrlFromFullUrl(), channelId, replyTo);
@@ -384,7 +384,7 @@ public class CorporAIteService
     {
         var chat = await GetTeamsChat(chatId);
 
-        if (!chat.Messages.Any() || chat.Messages.Last().Role == "assistant")
+        if (!chat.Messages.Any() || (chat.Messages.Last().Role == "assistant" && !chat.Messages.Last().Content.Contains("Functie uitvoeren:")))
         {
             throw new NotSupportedException();
         }
@@ -396,7 +396,7 @@ public class CorporAIteService
     {
         var chat = await GetTeamsChannelChat(teamsId, channelId, messageId, replyTo, channelChat, tabChat);
 
-        if (!chat.Messages.Any() || chat.Messages.Last().Role == "assistant")
+        if (!chat.Messages.Any() || (chat.Messages.Last().Role == "assistant" && !chat.Messages.Last().Content.Contains("Functie uitvoeren:")))
         {
             throw new NotSupportedException();
         }

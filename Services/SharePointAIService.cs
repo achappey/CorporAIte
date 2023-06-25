@@ -114,52 +114,68 @@ public class SharePointAIService
     }
 
 
-    public async Task<List<FunctionDefinition>> GetFunctions(string siteUrl)
+    public async Task<List<FunctionDefinition>> GetAllFunctions(string siteUrl)
     {
-        List<FunctionDefinition> result = new List<FunctionDefinition>();
+        var functionDefinitions = new List<FunctionDefinition>();
 
         using (var context = _sharePointService.GetContext(siteUrl))
         {
-            var items = await context.GetListItemsFromList("Functies", CamlQuery.CreateAllItemsQuery().ViewXml);
+            var functionItems = await context.GetListItemsFromList("Functies", CamlQuery.CreateAllItemsQuery().ViewXml);
 
-            foreach (var item in items)
+            foreach (var functionItem in functionItems)
             {
-                var list = context.Web.GetListByTitle(item["Lijst"].ToString());
-
-                context.Load(list, f => f.Description, f => f.DefaultView);
+                var functionList = GetFunctionList(context, functionItem);
                 await context.ExecuteQueryRetryAsync();
 
-                var view = list.GetView(list.DefaultView.Id);
-
-                context.Load(view, c => c.ViewFields);
+                var viewFields = GetViewFields(context, functionList);
                 await context.ExecuteQueryRetryAsync();
 
-                var fields = list.GetFields(view.ViewFields.ToArray());
+                var fields = functionList.GetFields(viewFields);
 
-                result.Add(new FunctionDefinition()
-                {
-                    Name = item["Title"].ToString(),
-                    Description = list.Description,
-                    Parameters = new FunctionParameters()
-                    {
-                        Properties = fields.ToDictionary(
-                field => field.Title,
-                field => new FunctionParameterPropertyValue
-                {
-                    //Type = field.TypeAsString,
-                    Type = "string",
-                    Description = field.Description
-                }),
-                        Required = fields.Select(a => a.Title).ToList()
-                    }
-                });
-
+                functionDefinitions.Add(CreateFunctionDefinition(functionItem, functionList, fields));
             }
-
         }
 
-        return result;
+        return functionDefinitions;
     }
+
+    private List GetFunctionList(ClientContext context, ListItem functionItem)
+    {
+        var listTitle = functionItem["Lijst"].ToString();
+        var list = context.Web.GetListByTitle(listTitle);
+        context.Load(list, f => f.Description, f => f.DefaultView);
+
+        return list;
+    }
+
+    private string[] GetViewFields(ClientContext context, List functionList)
+    {
+        var view = functionList.GetView(functionList.DefaultView.Id);
+        context.Load(view, v => v.ViewFields);
+
+        return view.ViewFields.ToArray();
+    }
+
+    private FunctionDefinition CreateFunctionDefinition(ListItem functionItem, List functionList, IEnumerable<Field> fields)
+    {
+        return new FunctionDefinition
+        {
+            Name = functionItem["Title"].ToString(),
+            Description = functionList.Description,
+            Parameters = new FunctionParameters
+            {
+                Properties = fields.ToDictionary(
+                    field => field.Title,
+                    field => new FunctionParameterPropertyValue
+                    {
+                        Type = field.FieldTypeKind.SharePointFieldToJson(),
+                        Description = field.Description
+                    }),
+                Required = fields.Select(a => a.Title).ToList()
+            }
+        };
+    }
+
 
     public async Task<IEnumerable<Message>> GetFunctionRequests(string siteUrl, string channelId, string messageId)
     {

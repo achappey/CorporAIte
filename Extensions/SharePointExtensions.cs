@@ -272,6 +272,17 @@ namespace CorporAIte.Extensions
             return listItem;
         }
 
+        public static string SharePointFieldToJson(this FieldType fieldType)
+        {
+            switch (fieldType)
+            {
+                case FieldType.Text:
+                    return "string";
+                default:
+                    return "";
+            }
+        }
+
         public static string RemoveBaseUrl(this string fullUrl)
         {
             var uri = new Uri(fullUrl);
