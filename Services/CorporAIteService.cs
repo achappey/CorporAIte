@@ -2,6 +2,7 @@ using AutoMapper;
 using CorporAIte.Extensions;
 using CorporAIte.Models;
 using OpenAI.ObjectModels.RequestModels;
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -149,13 +150,13 @@ public class CorporAIteService
             var folder = fileUrl.GetParentFolderFromServerRelativeUrl();
             var siteUrl = fileUrl.GetSiteUrlFromFullUrl();
 
-       /*     var fileInfo = await _sharePointAIService.GetFileInfoAsync(siteUrl, fileUrl.RemoveBaseUrl()).ConfigureAwait(false);
-            if (fileInfo == null)
-            {
-                return Enumerable.Empty<dynamic>();
-            }
+            /*     var fileInfo = await _sharePointAIService.GetFileInfoAsync(siteUrl, fileUrl.RemoveBaseUrl()).ConfigureAwait(false);
+                 if (fileInfo == null)
+                 {
+                     return Enumerable.Empty<dynamic>();
+                 }
 
-            var (serverRelativeUrl, lastModified) = fileInfo.Value;*/
+                 var (serverRelativeUrl, lastModified) = fileInfo.Value;*/
 
             return await ProcessFilesAsync(folder, siteUrl, new List<(string ServerRelativeUrl, DateTime LastModified)> { (fileUrl.RemoveBaseUrl(), new DateTime()) }, queryEmbedding, forceVectorGeneration).ConfigureAwait(false);
         });
@@ -187,8 +188,8 @@ public class CorporAIteService
     {
         var fileTasks = files.Select(async file =>
         {
-         //   var aiFiles = await this._sharePointAIService.GetAiFilesForFile(folder, Path.GetFileName(file.ServerRelativeUrl)).ConfigureAwait(false);
-            List<(byte[] ByteArray, DateTime LastModified)> aiFiles =  null;
+            //   var aiFiles = await this._sharePointAIService.GetAiFilesForFile(folder, Path.GetFileName(file.ServerRelativeUrl)).ConfigureAwait(false);
+            List<(byte[] ByteArray, DateTime LastModified)> aiFiles = null;
             var lines = await GetLinesAsync(siteUrl, file.ServerRelativeUrl).ConfigureAwait(false);
 
             if (lines == null || !lines.Any())
@@ -231,7 +232,7 @@ public class CorporAIteService
             {
                 var chatResponse = await _openAIService.ChatWithContextAsync(chat.SystemPrompt.Prompt + contextQuery,
                   chat.SystemPrompt.Temperature,
-                  chat.Messages.Select(a => _mapper.Map<OpenAI.ObjectModels.RequestModels.ChatMessage>(a)), 
+                  chat.Messages.Select(a => _mapper.Map<OpenAI.ObjectModels.RequestModels.ChatMessage>(a)),
                   chat.Functions);
 
                 return _mapper.Map<Message>(chatResponse);
@@ -294,7 +295,43 @@ public class CorporAIteService
     private async Task<Conversation> GetTeamsChannelChat(string teamsId, string channelId, string messageId, string replyTo, bool channelChat, bool tabChat)
     {
         var messages = await this._graphService.GetAllMessagesFromConversation(teamsId, channelId, replyTo);
-        var systemPrompt = await this._sharePointAIService.GetTeamsSystemPrompt();
+        var userMessage = messages.FirstOrDefault(a => a.Id == messageId);
+
+        var tags = await this._sharePointAIService.GetTags();
+       // var mentions = await this._graphService.GetMentions(teamsId, channelId, messageId);
+
+        var tag = tags.FirstOrDefault(a => userMessage.Mentions.Any(c =>  c.MentionText.ToLower() == a.Name.ToLower()));
+
+        var userString = "";
+        var userId = userMessage != null && userMessage.From.User != null ? userMessage.From.User.Id : null;
+
+        if(userMessage != null && userMessage.From.User != null) {
+            var user = await this._graphService.GetUser(userMessage.From.User.Id);
+
+            userString = (user.DisplayName + " (" + user.Department + ", " + user.Mail + ", " + user.EmployeeId + ")");
+        }
+
+        var chatMesages = messages
+                .Where(z => !z.DeletedDateTime.HasValue)
+                .Where(z => !string.IsNullOrEmpty(z.Body.Content))
+                .Select(z => new Message()
+                {
+                    Role = z.From.Application != null ? "assistant" : "user",
+                    Created = z.CreatedDateTime,
+                    Content = z.From.Application != null ? z.Body.Content : z.From.User.Id == userId ? userString + " op " + z.CreatedDateTime?.ToString("yyyy-MM-ddTHH:mm:ss", CultureInfo.InvariantCulture) + ": " + z.Body.Content 
+                     : z.From.User.DisplayName + " op " + z.CreatedDateTime?.ToString("yyyy-MM-ddTHH:mm:ss", CultureInfo.InvariantCulture)  + ": " + z.Body.Content
+                })
+                .Where(a => a.Role != "assistant" || (!a.Content.Contains("Functie uitvoeren:") && !a.Content.Contains("Functie uitgevoerd:"))).ToList();
+
+        var team = await this._graphService.GetTeam(teamsId);
+        var group = await this._graphService.GetGroup(teamsId);
+        
+        var teamsChannel = await this._graphService.GetTeamsChannel(teamsId, channelId);
+        var systemPrompt = !string.IsNullOrEmpty(tag?.SystemPrompt) ? new SystemPrompt() { 
+            Prompt = tag.SystemPrompt,
+            Temperature = tag.Temperature,
+        }  : 
+            await this._sharePointAIService.GetTeamsSystemPrompt(team.DisplayName, group.Mail, teamsChannel.DisplayName, teamsChannel.Description);
 
         var sources = messages.SelectMany(a => a.Attachments.Where(z => !string.IsNullOrEmpty(z.ContentUrl)).Select(z => z.ContentUrl))
                     .Where(y => this.supportedExtensions.Contains(Path.GetExtension(y).ToLowerInvariant()))
@@ -322,29 +359,26 @@ public class CorporAIteService
 
         List<FunctionDefinition>? functions = null;
 
-        var chatMesages = messages
-            .Where(z => !string.IsNullOrEmpty(z.Body.Content))
-            .Select(z => new Message()
-            {
-                Role = z.From.Application != null ? "assistant" : "user",
-                Created = z.CreatedDateTime,
-                Content = z.From.Application != null ? z.Body.Content : z.From.User.DisplayName + ": " + z.Body.Content
-            }).ToList();
+        try
+        {
+            if(tag == null) {
+                functions = await this._sharePointAIService.GetFunctions(teamsId, channelId);
+           
+            }
+            else {
+                functions = await this._sharePointAIService.GetTagFunctions(tag.ItemId, teamsId);
+            }
 
-        try {
-            functions = await this._sharePointAIService.GetAllFunctions(sharePointUrl.GetSiteUrlFromFullUrl());
-
-            var functionRequests = await this._sharePointAIService.GetFunctionRequests(sharePointUrl.GetSiteUrlFromFullUrl(), channelId, replyTo);
-            var functionResults = await this._sharePointAIService.GetFunctionResults(sharePointUrl.GetSiteUrlFromFullUrl(), channelId, replyTo);
+            var functionRequests = await this._sharePointAIService.GetFunctionRequests(teamsId, channelId, replyTo);
+            var functionResults = await this._sharePointAIService.GetFunctionResults(functionRequests.Select(a => a.ItemId));
 
             chatMesages.AddRange(functionRequests);
-
             chatMesages.AddRange(functionResults);
 
             chatMesages = chatMesages.OrderBy(a => a.Created).ToList();
         }
-        catch(Exception e) {
-
+        catch (Exception e)
+        {
         }
 
         return new Conversation()
@@ -352,7 +386,7 @@ public class CorporAIteService
             SystemPrompt = systemPrompt,
             Sources = sources,
             Messages = chatMesages,
-            Functions = functions,
+            Functions = functions?.Count > 0 ? functions : null,
         };
     }
 
@@ -360,7 +394,7 @@ public class CorporAIteService
     private async Task<Conversation> GetTeamsChat(string chatId)
     {
         var messages = await this._graphService.GetAllMessagesFromChat(chatId);
-        var systemPrompt = await this._sharePointAIService.GetTeamsSystemPrompt();
+        var systemPrompt = await this._sharePointAIService.GetTeamsSystemPrompt("", "", "", "");
 
         var sources = messages.SelectMany(a => a.Attachments.Where(z => !string.IsNullOrEmpty(z.ContentUrl)).Select(z => z.ContentUrl))
                     .Where(y => this.supportedExtensions.Contains(Path.GetExtension(y).ToLowerInvariant()))
@@ -384,7 +418,7 @@ public class CorporAIteService
     {
         var chat = await GetTeamsChat(chatId);
 
-        if (!chat.Messages.Any() || (chat.Messages.Last().Role == "assistant" && !chat.Messages.Last().Content.Contains("Functie uitvoeren:")))
+        if (!chat.Messages.Any() || (chat.Messages.Last().Role == "assistant" && chat.Messages.Last().Content.Contains("gpteams")))
         {
             throw new NotSupportedException();
         }
@@ -396,7 +430,7 @@ public class CorporAIteService
     {
         var chat = await GetTeamsChannelChat(teamsId, channelId, messageId, replyTo, channelChat, tabChat);
 
-        if (!chat.Messages.Any() || (chat.Messages.Last().Role == "assistant" && !chat.Messages.Last().Content.Contains("Functie uitvoeren:")))
+        if (!chat.Messages.Any() || (chat.Messages.Last().Role == "assistant" && chat.Messages.Last().Content.Contains("gpteams")))
         {
             throw new NotSupportedException();
         }
@@ -474,7 +508,7 @@ public class CorporAIteService
         var chatResponse = await _openAIService.ChatWithContextAsync(
             chat.SystemPrompt.Prompt,
             chat.SystemPrompt.Temperature,
-            openAiChatMessages, 
+            openAiChatMessages,
             chat.Functions);
 
         // Map the response to the ChatMessage model

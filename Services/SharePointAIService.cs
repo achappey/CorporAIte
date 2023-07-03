@@ -113,110 +113,94 @@ public class SharePointAIService
         }
     }
 
-
-    public async Task<List<FunctionDefinition>> GetAllFunctions(string siteUrl)
+    public async Task<IEnumerable<Tag>> GetTags()
     {
-        var functionDefinitions = new List<FunctionDefinition>();
+        List<FunctionDefinition> result = new List<FunctionDefinition>();
 
-        using (var context = _sharePointService.GetContext(siteUrl))
+        using (var context = _sharePointService.GetContext(_baseSiteUrl + _vectorSiteUrl))
         {
-            var functionItems = await context.GetListItemsFromList("Functies", CamlQuery.CreateAllItemsQuery().ViewXml);
+            var tags = await context.GetListItemsFromList("AI Tags", CamlQuery.CreateAllItemsQuery().ViewXml);
 
-            foreach (var functionItem in functionItems)
+            return tags.Select(a => new Tag()
             {
-                var functionList = GetFunctionList(context, functionItem);
-                await context.ExecuteQueryRetryAsync();
-
-                var viewFields = GetViewFields(context, functionList);
-                await context.ExecuteQueryRetryAsync();
-
-                var fields = functionList.GetFields(viewFields);
-
-                functionDefinitions.Add(CreateFunctionDefinition(functionItem, functionList, fields));
-            }
+                Name = a["Title"].ToString(),
+                ItemId = a.Id,
+                Temperature = (float)Convert.ToDouble(a["Temperatuur"]),
+                SystemPrompt = a["Systeemprompt"].ToString(),
+            });
         }
-
-        return functionDefinitions;
     }
 
-    private List GetFunctionList(ClientContext context, ListItem functionItem)
+
+
+    public async Task<List<FunctionDefinition>> GetFunctions(string teamsId, string channelId)
     {
-        var listTitle = functionItem["Lijst"].ToString();
-        var list = context.Web.GetListByTitle(listTitle);
-        context.Load(list, f => f.Description, f => f.DefaultView);
+        List<FunctionDefinition> result = new List<FunctionDefinition>();
 
-        return list;
-    }
-
-    private string[] GetViewFields(ClientContext context, List functionList)
-    {
-        var view = functionList.GetView(functionList.DefaultView.Id);
-        context.Load(view, v => v.ViewFields);
-
-        return view.ViewFields.ToArray();
-    }
-
-    private FunctionDefinition CreateFunctionDefinition(ListItem functionItem, List functionList, IEnumerable<Field> fields)
-    {
-        return new FunctionDefinition
+        using (var context = _sharePointService.GetContext(_baseSiteUrl + _vectorSiteUrl))
         {
-            Name = functionItem["Title"].ToString(),
-            Description = functionList.Description,
-            Parameters = new FunctionParameters
-            {
-                Properties = fields.ToDictionary(
-                    field => field.Title,
-                    field => new FunctionParameterPropertyValue
-                    {
-                        Type = field.FieldTypeKind.SharePointFieldToJson(),
-                        Description = field.Description
-                    }),
-                Required = fields.Select(a => a.Title).ToList()
-            }
-        };
-    }
+            var teams = await context.GetTeamsItem(teamsId);
+            var channel = await context.GetTeamsChannelItem(teams.Id, channelId);
 
-
-    public async Task<IEnumerable<Message>> GetFunctionRequests(string siteUrl, string channelId, string messageId)
-    {
-        List<Message> result = new List<Message>();
-
-        using (var context = _sharePointService.GetContext(siteUrl))
-        {
-            var items = await context.GetListItemsFromList("Functie verzoeken", $@"
+            var channelFunctions = await context.GetListItemsFromList("AI Kanaal Functies", $@"
             <View>
                 <Query>
                     <Where>
-                    <And>
                         <Eq>
-                            <FieldRef Name='{FieldNames.Conversatie}' />
-                            <Value Type='Text'>{messageId}</Value>
+                            <FieldRef Name='Kanaal' LookupId='TRUE' />
+                            <Value Type='Lookup'>{channel.Id}</Value>
                         </Eq>
-                          <Eq>
-                            <FieldRef Name='Title' />
-                            <Value Type='Text'>{channelId}</Value>
-                        </Eq>
-                        </And>
                     </Where>
-                    <OrderBy>
-                        <FieldRef Name='{FieldNames.Created}' Ascending='TRUE' />
-                    </OrderBy>
                 </Query>
             </View>");
 
-            foreach (var item in items)
+            var functionIds = channelFunctions.Select(a => $@"<Value Type='Number'>{(a["Functie"] as FieldLookupValue).LookupId}</Value>");
+
+            var functions = await context.GetListItemsFromList("AI Functies", $@"
+            <View>
+                <Query>
+                    <Where>
+                        <In>
+                            <FieldRef Name='ID' />
+                            <Values>
+                                {string.Join("", functionIds)}
+                            </Values>
+                        </In>
+                    </Where>
+                </Query>
+            </View>");
+
+            foreach (var item in functions)
             {
-                result.Add(new Message()
+                var contentType = context.Web.GetContentTypeByName(item["Definitie"].ToString());
+                context.Load(contentType, f => f.Description, f => f.Fields);
+
+                await context.ExecuteQueryRetryAsync();
+
+                var fields = contentType.Fields.Where(a => a.Group == "Fakton AI");
+
+                result.Add(new FunctionDefinition()
                 {
-                    Role = "assistant",
-                    Content = "",
-                    Created = Convert.ToDateTime(item[FieldNames.Created]),
-                    FunctionCall = new CorporAIte.Models.FunctionCall()
+                    Name = item["Naam"].ToString(),
+                    Description = contentType.Description,
+                    Parameters = new FunctionParameters()
                     {
-                        Name = item["Naam"].ToString(),
-                        Arguments = item["Argumenten"].ToString()
+                        Properties = fields.ToDictionary(
+                field => field.Title,
+                field => new FunctionParameterPropertyValue
+                {
+                    Type = field.FieldTypeKind.SharePointFieldToJson(),
+                    Description = field.Description,
+                    Enum = field.FieldTypeKind == FieldType.Choice ? (field as FieldChoice).Choices : null
+                }),
+                        Required = fields
+                        .Where(a => a.Required)
+                        .Select(a => a.Title)
+                        .ToList()
                     }
                 });
+
+
             }
 
         }
@@ -224,16 +208,205 @@ public class SharePointAIService
         return result;
     }
 
-    public async Task<IEnumerable<Message>> GetFunctionResults(string siteUrl, string channelId, string messageId)
+    public async Task<List<FunctionDefinition>> GetTagFunctions(int tagId, string teamsId)
     {
-        List<Message> result = new List<Message>();
+        List<FunctionDefinition> result = new List<FunctionDefinition>();
 
-        using (var context = _sharePointService.GetContext(siteUrl))
+        using (var context = _sharePointService.GetContext(_baseSiteUrl + _vectorSiteUrl))
         {
-            var items = await context.GetListItemsFromList("Functie resultaten", $@"
+            var teams = await context.GetTeamsItem(teamsId);
+
+            var channelFunctions = await context.GetListItemsFromList("AI Tag Functies", $@"
             <View>
                 <Query>
                     <Where>
+                        <Eq>
+                            <FieldRef Name='Tag' LookupId='TRUE' />
+                            <Value Type='Lookup'>{tagId}</Value>
+                        </Eq>
+                    </Where>
+                </Query>
+            </View>");
+        channelFunctions = channelFunctions.Where(a => a["Team"] == null || (a["Team"] as FieldLookupValue).LookupId == teams.Id);
+
+        foreach (var message in channelFunctions)
+            {
+
+                var functieLookup = (message["Functie"] as FieldLookupValue);
+
+                var functions = await context.GetListItemsFromList("AI Functies", $@"
+            <View>
+                <Query>
+                    <Where>
+                    <Eq>
+                    <FieldRef Name='ID' />
+                    <Value Type='Number'>{functieLookup.LookupId}</Value>
+                    </Eq>
+                    </Where>
+                </Query>
+            </View>");
+
+                 foreach (var item in functions)
+            {
+                var contentType = context.Web.GetContentTypeByName(item["Definitie"].ToString());
+                context.Load(contentType, f => f.Description, f => f.Fields);
+
+                await context.ExecuteQueryRetryAsync();
+
+                var fields = contentType.Fields.Where(a => a.Group == "Fakton AI");
+
+                result.Add(new FunctionDefinition()
+                {
+                    Name = item["Naam"].ToString(),
+                    Description = contentType.Description,
+                    Parameters = new FunctionParameters()
+                    {
+                        Properties = fields.ToDictionary(
+                field => field.Title,
+                field => new FunctionParameterPropertyValue
+                {
+                    Type = field.FieldTypeKind.SharePointFieldToJson(),
+                    Description = field.Description,
+                    Enum = field.FieldTypeKind == FieldType.Choice ? (field as FieldChoice).Choices : null
+                }),
+                        Required = fields
+                        .Where(a => a.Required)
+                        .Select(a => a.Title)
+                        .ToList()
+                    }
+                });
+
+
+            }
+            }
+
+        }
+
+        return result;
+    }
+
+    public async Task<IEnumerable<Message>> GetFunctionRequests(string teamsId, string channelId, string replyToId)
+    {
+        List<Message> result = new List<Message>();
+
+        using (var context = _sharePointService.GetContext(_baseSiteUrl + _vectorSiteUrl))
+        {
+            var teams = await context.GetTeamsItem(teamsId);
+            var channel = await context.GetTeamsChannelItem(teams.Id, channelId);
+
+            var channelMessages = await context.GetListItemsFromList("AI Kanaalberichten", $@"
+            <View>
+                <Query>
+                    <Where>
+                        <And>
+                        <Eq>
+                            <FieldRef Name='Kanaal' LookupId='TRUE' />
+                            <Value Type='Lookup'>{channel.Id}</Value>
+                        </Eq>
+                        <Eq>
+                            <FieldRef Name='Antwoordop' />
+                            <Value Type='Text'>{replyToId}</Value>
+                        </Eq>
+                        </And>
+                    </Where>
+                </Query>
+                <RowLimit>1</RowLimit>
+            </View>");
+
+            foreach (var message in channelMessages)
+            {
+                var functionRequests = await context.GetListItemsFromList("AI Functie Verzoek", $@"
+            <View>
+                <Query>
+                    <Where>
+                    <Eq>
+                    <FieldRef Name='Kanaalbericht' LookupId='TRUE' />
+                    <Value Type='Lookup'>{message.Id}</Value>
+                    </Eq>
+                    </Where>
+                </Query>
+            </View>");
+
+                foreach (var item in functionRequests)
+                {
+                    result.Add(new Message()
+                    {
+                        Role = "assistant",
+                        Content = "",
+                        ItemId = item.Id,
+                        Created = Convert.ToDateTime(item[FieldNames.Created]),
+                        FunctionCall = new CorporAIte.Models.FunctionCall()
+                        {
+                            Name = item[FieldNames.Title].ToString(),
+                            Arguments = item[FieldNames.Arguments].ToString()
+                        }
+                    });
+                }
+            }
+
+        }
+
+        return result.OrderBy(a => a.Created);
+    }
+
+    public async Task<IEnumerable<Message>> GetFunctionResults(IEnumerable<int> requestIds)
+    {
+        List<Message> result = new List<Message>();
+
+        if (requestIds.Count() == 0)
+        {
+            return result;
+
+        }
+
+        using (var context = _sharePointService.GetContext(_baseSiteUrl + _vectorSiteUrl))
+        {
+
+
+            var channelMessageIds = requestIds.Select(a => $@"<Value Type='Lookup'>{a}</Value>");
+
+            foreach (var message in requestIds)
+            {
+                var items = await context.GetListItemsFromList("AI Functie Resultaat", $@"
+            <View>
+                <Query>
+                    <Where>
+                      <Eq><FieldRef Name='Verzoek' LookupId='TRUE' /><Value Type='Lookup'>{message}</Value></Eq>
+                    </Where>
+                </Query>
+            </View>");
+
+                foreach (var item in items)
+                {
+                    result.Add(new Message()
+                    {
+                        Role = "function",
+                        Name = item[FieldNames.Title].ToString(),
+                        Created = Convert.ToDateTime(item[FieldNames.Created]),
+                        Content = item[FieldNames.Results].ToString()
+                    });
+                }
+            }
+
+        }
+
+        return result.OrderBy(a => a.Created);
+    }
+
+
+    public async Task<IEnumerable<Message>> GetFunctionResults2(string teamsId, string channelId, string messageId)
+    {
+        List<Message> result = new List<Message>();
+
+        using (var context = _sharePointService.GetContext(_baseSiteUrl + _vectorSiteUrl))
+        {
+
+
+            var items = await context.GetListItemsFromList("AI Functie resultaten", $@"
+            <View>
+                <Query>
+                    <Where>
+                    <And>
                     <And>
                         <Eq>
                             <FieldRef Name='{FieldNames.Conversatie}' />
@@ -242,6 +415,11 @@ public class SharePointAIService
                           <Eq>
                             <FieldRef Name='{FieldNames.Channel}' />
                             <Value Type='Text'>{channelId}</Value>
+                        </Eq>
+                        </And>
+                          <Eq>
+                            <FieldRef Name='{FieldNames.Teams}' />
+                            <Value Type='Text'>{teamsId}</Value>
                         </Eq>
                         </And>
                     </Where>
@@ -256,9 +434,9 @@ public class SharePointAIService
                 result.Add(new Message()
                 {
                     Role = "function",
-                    Name = item["Title"].ToString(),
+                    Name = item[FieldNames.Title].ToString(),
                     Created = Convert.ToDateTime(item[FieldNames.Created]),
-                    Content = item["Resultaat"].ToString()
+                    Content = item[FieldNames.Results].ToString()
                 });
             }
 
@@ -267,7 +445,7 @@ public class SharePointAIService
         return result;
     }
 
-    public async Task<SystemPrompt> GetTeamsSystemPrompt()
+    public async Task<SystemPrompt> GetTeamsSystemPrompt(string teamName, string teamEmail, string channelName, string description)
     {
         using (var context = _sharePointService.GetContext(_baseSiteUrl + _chatSiteUrl))
         {
@@ -280,7 +458,11 @@ public class SharePointAIService
 
             return new SystemPrompt()
             {
-                Prompt = systemPrompt?[FieldNames.Prompt]?.ToString(),
+                Prompt = systemPrompt?[FieldNames.Prompt]?.ToString()
+                .Replace("{name}", teamName)
+                .Replace("{channel}", channelName)
+                .Replace("{teamEmail}", teamEmail)
+                .Replace("{description}", description),
                 ForceVectorGeneration = true,
                 Temperature = temperature
             };

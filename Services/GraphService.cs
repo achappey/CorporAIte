@@ -72,7 +72,31 @@ public class GraphService
 
         return chatMessages.OrderBy(a => a.CreatedDateTime).ToList();
     }
+ public async Task<User> GetUser(string user)
+    {
+         return await _graph.Users[user].Request().Select("department,mail,displayName").GetAsync();
+    }
+ public async Task<Group> GetGroup(string teamId)
+    {
+         return await _graph.Groups[teamId].Request().Select("mail").GetAsync();
+    }
+    public async Task<Team> GetTeam(string teamId)
+    {
+         return await _graph.Teams[teamId].Request().Select("displayName").GetAsync();
+    }
 
+    public async Task<Channel> GetTeamsChannel(string teamId, string channelId)
+    {
+         return await _graph.Teams[teamId].Channels[channelId].Request().Select("displayName,description").GetAsync();
+    }
+
+    public async Task<IEnumerable<ChatMessageMention>> GetMentions(string teamId, string channelId, string messageId)
+    {
+
+        var rootMessage = await _graph.Teams[teamId].Channels[channelId].Messages[messageId].Request().GetAsync();
+
+        return rootMessage.Mentions;
+    }
 
     public async Task<List<ChatMessage>> GetAllMessagesFromConversation(string teamId, string channelId, string messageId)
     {

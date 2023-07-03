@@ -64,7 +64,6 @@ namespace CorporAIte.Extensions
             }
         }
 
-
         public static List<string> ConvertPdfToLines(this byte[] pdfBytes)
         {
             using var stream = new MemoryStream(pdfBytes);
@@ -75,8 +74,10 @@ namespace CorporAIte.Extensions
 
             for (int pageNum = 1; pageNum <= pdfDocument.GetNumberOfPages(); pageNum++)
             {
+
                 var page = pdfDocument.GetPage(pageNum);
                 var strategy = new LocationTextExtractionStrategy();
+
                 var pageText = PdfTextExtractor.GetTextFromPage(page, strategy);
 
                 var regex = new Regex(@"(?<=\r\n)(?=[A-Z0-9])");
@@ -95,6 +96,7 @@ namespace CorporAIte.Extensions
 
             return paragraphs;
         }
+
 
         public static List<string> ConvertPptxToLines(this byte[] pptxBytes)
         {

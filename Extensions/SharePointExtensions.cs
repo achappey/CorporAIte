@@ -259,6 +259,48 @@ namespace CorporAIte.Extensions
 
         }
 
+        public static async Task<ListItem> GetTeamsItem(this ClientContext context, string teamsId)
+        {
+            var teams = await context.GetListItemsFromList("AI Teams", $@"
+            <View>
+                <Query>
+                    <Where>
+                        <Eq>
+                            <FieldRef Name='{FieldNames.Title}'  />
+                            <Value Type='Text'>{teamsId}</Value>
+                        </Eq>
+                    </Where>
+                </Query>
+                <RowLimit>1</RowLimit>
+            </View>");
+
+            return teams.FirstOrDefault();
+        }
+
+    public static async Task<ListItem> GetTeamsChannelItem(this ClientContext context, int teamsId, string channelId)
+        {
+             var channel = await context.GetListItemsFromList("AI Teams Kanalen", $@"
+            <View>
+                <Query>
+                    <Where>
+                        <And>
+                            <Eq>
+                                <FieldRef Name='Team' LookupId='TRUE' />
+                                <Value Type='Lookup'>{teamsId}</Value>
+                            </Eq>
+                            <Eq>
+                                <FieldRef Name='Title' />
+                                <Value Type='Text'>{channelId}</Value>
+                            </Eq>
+                        </And>
+                    </Where>
+                </Query>
+                <RowLimit>1</RowLimit>
+            </View>");
+
+            return channel.FirstOrDefault();
+        }
+
 
         public static async Task<ListItem> GetListItemFromList(this ClientContext context, string listTitle, int itemId)
         {
@@ -272,12 +314,20 @@ namespace CorporAIte.Extensions
             return listItem;
         }
 
+
         public static string SharePointFieldToJson(this FieldType fieldType)
         {
             switch (fieldType)
             {
                 case FieldType.Text:
+                case FieldType.Choice:
+                case FieldType.Note:
                     return "string";
+                case FieldType.DateTime:
+                    return "string";
+                case FieldType.Number:
+                case FieldType.Integer:
+                    return "number";
                 default:
                     return "";
             }
