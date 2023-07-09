@@ -7,6 +7,8 @@ namespace CorporAIte.Models
 
         public string Prompt { get; set; }
 
+        public string Model { get; set; }
+
         public float Temperature { get; set; }
 
         public bool ForceVectorGeneration { get; set; }

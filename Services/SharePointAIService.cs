@@ -125,6 +125,7 @@ public class SharePointAIService
             {
                 Name = a["Title"].ToString(),
                 ItemId = a.Id,
+                Model = a["Model"]?.ToString(),
                 Temperature = (float)Convert.ToDouble(a["Temperatuur"]),
                 SystemPrompt = a["Systeemprompt"].ToString(),
             });

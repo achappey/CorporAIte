@@ -9,6 +9,7 @@ public static class FieldNames
     public const string Created = "Created";
     public const string SysteemPrompt = "Systeem_x0020_Prompt";
     public const string Prompt = "Prompt";
+    public const string Model = "Model";
     public const string Naamconversatie = "Naamconversatie";
     public const string Suggestievraag = "Suggestievraag";
     public const string Altijdvectorsgenereren = "Altijdvectorsgenereren";

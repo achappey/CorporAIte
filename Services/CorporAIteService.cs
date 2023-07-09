@@ -233,7 +233,8 @@ public class CorporAIteService
                 var chatResponse = await _openAIService.ChatWithContextAsync(chat.SystemPrompt.Prompt + contextQuery,
                   chat.SystemPrompt.Temperature,
                   chat.Messages.Select(a => _mapper.Map<OpenAI.ObjectModels.RequestModels.ChatMessage>(a)),
-                  chat.Functions);
+                  chat.Functions,
+                  chat.SystemPrompt.Model);
 
                 return _mapper.Map<Message>(chatResponse);
             }
@@ -329,6 +330,7 @@ public class CorporAIteService
         var teamsChannel = await this._graphService.GetTeamsChannel(teamsId, channelId);
         var systemPrompt = !string.IsNullOrEmpty(tag?.SystemPrompt) ? new SystemPrompt() { 
             Prompt = tag.SystemPrompt,
+            Model = tag.Model,
             Temperature = tag.Temperature,
         }  : 
             await this._sharePointAIService.GetTeamsSystemPrompt(team.DisplayName, group.Mail, teamsChannel.DisplayName, teamsChannel.Description);
@@ -438,38 +440,6 @@ public class CorporAIteService
         return await ProcessChatAsync(chat);
     }
 
-    public async Task<string> GetChatNameAsync(int chatId)
-    {
-        var chat = await this._sharePointAIService.GetListChat(chatId);
-
-        chat.Messages.Add(new Message()
-        {
-            Role = "user",
-            Content = chat.SystemPrompt.ConversationNamePrompt
-        });
-
-        var result = await ProcessChatAsync(chat);
-
-        return result.Content;
-    }
-
-    public async Task<Suggestions> GetPromptPredictionAsync(int chatId)
-    {
-        var chat = await GetChatAsync(chatId, CorporAIte.Prompts.PredictPrompt);
-
-        var result = await ProcessChatAsync(chat);
-
-        try
-        {
-            return JsonSerializer.Deserialize<Suggestions>(result.Content);
-
-        }
-        catch (JsonException)
-        {
-            return new Suggestions();
-        }
-    }
-
 
     public async Task<Folders> GetOneDriveFolders(string userId)
     {
@@ -509,7 +479,8 @@ public class CorporAIteService
             chat.SystemPrompt.Prompt,
             chat.SystemPrompt.Temperature,
             openAiChatMessages,
-            chat.Functions);
+            chat.Functions,
+            chat.SystemPrompt.Model);
 
         // Map the response to the ChatMessage model
         return _mapper.Map<Message>(chatResponse);
