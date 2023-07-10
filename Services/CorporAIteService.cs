@@ -299,7 +299,6 @@ public class CorporAIteService
         var userMessage = messages.FirstOrDefault(a => a.Id == messageId);
 
         var tags = await this._sharePointAIService.GetTags();
-
         var tag = tags.FirstOrDefault(a => userMessage.Mentions.Any(c =>  c.MentionText.ToLower() == a.Name.ToLower()));
 
         if(tag == null && userMessage.Body.Content.Contains("New Service Message")) 
@@ -436,7 +435,7 @@ public class CorporAIteService
     {
         var chat = await GetTeamsChannelChat(teamsId, channelId, messageId, replyTo, channelChat, tabChat);
 
-        if (!chat.Messages.Any())
+        if (!chat.Messages.Any() || (chat.Messages.Last().Role == "assistant" && !chat.Messages.Last().Content.Contains("AutoGPT")))
         {
             throw new NotSupportedException();
         }
