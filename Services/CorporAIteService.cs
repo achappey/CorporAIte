@@ -299,9 +299,13 @@ public class CorporAIteService
         var userMessage = messages.FirstOrDefault(a => a.Id == messageId);
 
         var tags = await this._sharePointAIService.GetTags();
-       // var mentions = await this._graphService.GetMentions(teamsId, channelId, messageId);
 
         var tag = tags.FirstOrDefault(a => userMessage.Mentions.Any(c =>  c.MentionText.ToLower() == a.Name.ToLower()));
+
+        if(tag == null && userMessage.Body.Content.Contains("New Service Message")) 
+        {
+            tag = tags.FirstOrDefault(y => y.Name == "Service");
+        }
 
         var userString = "";
         var userId = userMessage != null && userMessage.From.User != null ? userMessage.From.User.Id : null;
@@ -420,7 +424,7 @@ public class CorporAIteService
     {
         var chat = await GetTeamsChat(chatId);
 
-        if (!chat.Messages.Any() || (chat.Messages.Last().Role == "assistant" && chat.Messages.Last().Content.Contains("gpteams")))
+        if (!chat.Messages.Any())
         {
             throw new NotSupportedException();
         }
@@ -432,7 +436,7 @@ public class CorporAIteService
     {
         var chat = await GetTeamsChannelChat(teamsId, channelId, messageId, replyTo, channelChat, tabChat);
 
-        if (!chat.Messages.Any() || (chat.Messages.Last().Role == "assistant" && chat.Messages.Last().Content.Contains("gpteams")))
+        if (!chat.Messages.Any())
         {
             throw new NotSupportedException();
         }
