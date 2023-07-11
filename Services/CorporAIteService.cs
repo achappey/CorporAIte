@@ -299,9 +299,9 @@ public class CorporAIteService
         var userMessage = messages.FirstOrDefault(a => a.Id == messageId);
 
         var tags = await this._sharePointAIService.GetTags();
-        var tag = tags.FirstOrDefault(a => userMessage.Mentions.Any(c =>  c.MentionText.ToLower() == a.Name.ToLower()));
+        var tag = tags.FirstOrDefault(a => userMessage.Mentions.Any(c => c.MentionText.ToLower() == a.Name.ToLower()));
 
-        if(tag == null && userMessage.Body.Content.Contains("New Service Message")) 
+        if (tag == null && userMessage.Body.Content.Contains("Service AutoGPT"))
         {
             tag = tags.FirstOrDefault(y => y.Name == "Service");
         }
@@ -309,7 +309,8 @@ public class CorporAIteService
         var userString = "";
         var userId = userMessage != null && userMessage.From.User != null ? userMessage.From.User.Id : null;
 
-        if(userMessage != null && userMessage.From.User != null) {
+        if (userMessage != null && userMessage.From.User != null)
+        {
             var user = await this._graphService.GetUser(userMessage.From.User.Id);
 
             userString = (user.DisplayName + " (" + user.Department + ", " + user.Mail + ", " + user.EmployeeId + ")");
@@ -322,20 +323,21 @@ public class CorporAIteService
                 {
                     Role = z.From.Application != null ? "assistant" : "user",
                     Created = z.CreatedDateTime,
-                    Content = z.From.Application != null ? z.Body.Content : z.From.User.Id == userId ? userString + " op " + z.CreatedDateTime?.ToString("yyyy-MM-ddTHH:mm:ss", CultureInfo.InvariantCulture) + ": " + z.Body.Content 
-                     : z.From.User.DisplayName + " op " + z.CreatedDateTime?.ToString("yyyy-MM-ddTHH:mm:ss", CultureInfo.InvariantCulture)  + ": " + z.Body.Content
+                    Content = z.From.Application != null ? z.Body.Content : z.From.User.Id == userId ? userString + " op " + z.CreatedDateTime?.ToString("yyyy-MM-ddTHH:mm:ss", CultureInfo.InvariantCulture) + ": " + z.Body.Content
+                     : z.From.User.DisplayName + " op " + z.CreatedDateTime?.ToString("yyyy-MM-ddTHH:mm:ss", CultureInfo.InvariantCulture) + ": " + z.Body.Content
                 })
                 .Where(a => a.Role != "assistant" || (!a.Content.Contains("Functie uitvoeren:") && !a.Content.Contains("Functie uitgevoerd:"))).ToList();
 
         var team = await this._graphService.GetTeam(teamsId);
         var group = await this._graphService.GetGroup(teamsId);
-        
+
         var teamsChannel = await this._graphService.GetTeamsChannel(teamsId, channelId);
-        var systemPrompt = !string.IsNullOrEmpty(tag?.SystemPrompt) ? new SystemPrompt() { 
+        var systemPrompt = !string.IsNullOrEmpty(tag?.SystemPrompt) ? new SystemPrompt()
+        {
             Prompt = tag.SystemPrompt,
             Model = tag.Model,
             Temperature = tag.Temperature,
-        }  : 
+        } :
             await this._sharePointAIService.GetTeamsSystemPrompt(team.DisplayName, group.Mail, teamsChannel.DisplayName, teamsChannel.Description);
 
         var sources = messages.SelectMany(a => a.Attachments.Where(z => !string.IsNullOrEmpty(z.ContentUrl)).Select(z => z.ContentUrl))
@@ -366,11 +368,13 @@ public class CorporAIteService
 
         try
         {
-            if(tag == null) {
+            if (tag == null)
+            {
                 functions = await this._sharePointAIService.GetFunctions(teamsId, channelId);
-           
+
             }
-            else {
+            else
+            {
                 functions = await this._sharePointAIService.GetTagFunctions(tag.ItemId, teamsId);
             }
 
@@ -401,21 +405,44 @@ public class CorporAIteService
         var messages = await this._graphService.GetAllMessagesFromChat(chatId);
         var systemPrompt = await this._sharePointAIService.GetTeamsSystemPrompt("", "", "", "");
 
+        var tags = await this._sharePointAIService.GetTags();
+        var tag = tags.FirstOrDefault(y => y.Name == "Service");
+
         var sources = messages.SelectMany(a => a.Attachments.Where(z => !string.IsNullOrEmpty(z.ContentUrl)).Select(z => z.ContentUrl))
                     .Where(y => this.supportedExtensions.Contains(Path.GetExtension(y).ToLowerInvariant()))
                     .ToList();
+        List<FunctionDefinition>? functions = null;
 
-        return new Conversation()
-        {
-            SystemPrompt = systemPrompt,
-            Sources = sources,
-            Messages = messages
+        var chatMesages = messages
             .Where(z => z.From != null && !string.IsNullOrEmpty(z.Body.Content))
             .Select(z => new Message()
             {
                 Role = z.From.Application != null ? "assistant" : "user",
                 Content = z.From.Application != null ? z.Body.Content : z.From.User.DisplayName + ": " + z.Body.Content
-            }).ToList()
+            }).ToList();
+
+        try
+        {
+            functions = await this._sharePointAIService.GetTagFunctions(tag.ItemId, null);
+
+            var functionRequests = await this._sharePointAIService.GetFunctionChatRequests(chatId);
+            var functionResults = await this._sharePointAIService.GetFunctionResults(functionRequests.Select(a => a.ItemId));
+
+            chatMesages.AddRange(functionRequests);
+            chatMesages.AddRange(functionResults);
+
+            chatMesages = chatMesages.OrderBy(a => a.Created).ToList();
+        }
+        catch (Exception e)
+        {
+        }
+
+        return new Conversation()
+        {
+            SystemPrompt = systemPrompt,
+            Sources = sources,
+            Functions = functions?.Count > 0 ? functions : null,
+            Messages = chatMesages
         };
     }
 

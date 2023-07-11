@@ -228,9 +228,9 @@ public class SharePointAIService
                     </Where>
                 </Query>
             </View>");
-        channelFunctions = channelFunctions.Where(a => a["Team"] == null || (a["Team"] as FieldLookupValue).LookupId == teams.Id);
+            channelFunctions = channelFunctions.Where(a => a["Team"] == null || (a["Team"] as FieldLookupValue).LookupId == teams.Id);
 
-        foreach (var message in channelFunctions)
+            foreach (var message in channelFunctions)
             {
 
                 var functieLookup = (message["Functie"] as FieldLookupValue);
@@ -247,38 +247,38 @@ public class SharePointAIService
                 </Query>
             </View>");
 
-                 foreach (var item in functions)
-            {
-                var contentType = context.Web.GetContentTypeByName(item["Definitie"].ToString());
-                context.Load(contentType, f => f.Description, f => f.Fields);
-
-                await context.ExecuteQueryRetryAsync();
-
-                var fields = contentType.Fields.Where(a => a.Group == "Fakton AI");
-
-                result.Add(new FunctionDefinition()
+                foreach (var item in functions)
                 {
-                    Name = item["Naam"].ToString(),
-                    Description = contentType.Description,
-                    Parameters = new FunctionParameters()
+                    var contentType = context.Web.GetContentTypeByName(item["Definitie"].ToString());
+                    context.Load(contentType, f => f.Description, f => f.Fields);
+
+                    await context.ExecuteQueryRetryAsync();
+
+                    var fields = contentType.Fields.Where(a => a.Group == "Fakton AI");
+
+                    result.Add(new FunctionDefinition()
                     {
-                        Properties = fields.ToDictionary(
-                field => field.Title,
-                field => new FunctionParameterPropertyValue
-                {
-                    Type = field.FieldTypeKind.SharePointFieldToJson(),
-                    Description = field.Description,
-                    Enum = field.FieldTypeKind == FieldType.Choice ? (field as FieldChoice).Choices : null
-                }),
-                        Required = fields
-                        .Where(a => a.Required)
-                        .Select(a => a.Title)
-                        .ToList()
-                    }
-                });
+                        Name = item["Naam"].ToString(),
+                        Description = contentType.Description,
+                        Parameters = new FunctionParameters()
+                        {
+                            Properties = fields.ToDictionary(
+                    field => field.Title,
+                    field => new FunctionParameterPropertyValue
+                    {
+                        Type = field.FieldTypeKind.SharePointFieldToJson(),
+                        Description = field.Description,
+                        Enum = field.FieldTypeKind == FieldType.Choice ? (field as FieldChoice).Choices : null
+                    }),
+                            Required = fields
+                            .Where(a => a.Required)
+                            .Select(a => a.Title)
+                            .ToList()
+                        }
+                    });
 
 
-            }
+                }
             }
 
         }
@@ -322,6 +322,61 @@ public class SharePointAIService
                     <Where>
                     <Eq>
                     <FieldRef Name='Kanaalbericht' LookupId='TRUE' />
+                    <Value Type='Lookup'>{message.Id}</Value>
+                    </Eq>
+                    </Where>
+                </Query>
+            </View>");
+
+                foreach (var item in functionRequests)
+                {
+                    result.Add(new Message()
+                    {
+                        Role = "assistant",
+                        Content = "",
+                        ItemId = item.Id,
+                        Created = Convert.ToDateTime(item[FieldNames.Created]),
+                        FunctionCall = new CorporAIte.Models.FunctionCall()
+                        {
+                            Name = item[FieldNames.Title].ToString(),
+                            Arguments = item[FieldNames.Arguments].ToString()
+                        }
+                    });
+                }
+            }
+
+        }
+
+        return result.OrderBy(a => a.Created);
+    }
+
+    public async Task<IEnumerable<Message>> GetFunctionChatRequests(string conversationId)
+    {
+        List<Message> result = new List<Message>();
+
+        using (var context = _sharePointService.GetContext(_baseSiteUrl + _vectorSiteUrl))
+        {
+            var channelMessages = await context.GetListItemsFromList("AI Groepchats", $@"
+            <View>
+                <Query>
+                    <Where>
+                        <Eq>
+                            <FieldRef Name='Title' />
+                            <Value Type='Text'>{conversationId}</Value>
+                        </Eq>
+                    </Where>
+                </Query>
+                <RowLimit>1</RowLimit>
+            </View>");
+
+            foreach (var message in channelMessages)
+            {
+                var functionRequests = await context.GetListItemsFromList("AI Functie Verzoek", $@"
+            <View>
+                <Query>
+                    <Where>
+                    <Eq>
+                    <FieldRef Name='Groepschat' LookupId='TRUE' />
                     <Value Type='Lookup'>{message.Id}</Value>
                     </Eq>
                     </Where>
