@@ -54,7 +54,10 @@ public class GraphService
         List<ChatMessage> chatMessages = new List<ChatMessage>();
 
         // Get all messages in the chat.
-        var messagesRequest = _graph.Chats[chatId].Messages.Request();
+         var messagesRequest = _graph.Chats[chatId].Messages.Request()
+                            .OrderBy("createdDateTime desc") // Order by CreatedDateTime in descending order
+                            .Top(50); // Get the top 100 messages
+
         do
         {
             var messagesPage = await messagesRequest.GetAsync();
@@ -70,7 +73,7 @@ public class GraphService
 
         } while (messagesRequest != null);
 
-        return chatMessages.OrderBy(a => a.CreatedDateTime).ToList();
+        return chatMessages.Take(100).OrderBy(a => a.CreatedDateTime).ToList();
     }
  public async Task<User> GetUser(string user)
     {

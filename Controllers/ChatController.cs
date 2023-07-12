@@ -20,11 +20,11 @@ public class ChatController : ControllerBase
     [HttpGet(Name = "Chat")]
     [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(Message))]
     [Produces("application/json")]
-    public async Task<IActionResult> Chat([FromQuery] string chatId)
+    public async Task<IActionResult> Chat([FromQuery] string chatId, [FromQuery] int roleId)
     {
         try
         {
-            var result = await _corporAiteService.TeamsChatAsync(chatId);
+            var result = await _corporAiteService.TeamsChatAsync(chatId, roleId);
 
             return Ok(result);
         }

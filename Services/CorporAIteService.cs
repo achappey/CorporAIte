@@ -400,13 +400,13 @@ public class CorporAIteService
     }
 
 
-    private async Task<Conversation> GetTeamsChat(string chatId)
+    private async Task<Conversation> GetTeamsChat(string chatId, int roleId)
     {
         var messages = await this._graphService.GetAllMessagesFromChat(chatId);
-        var systemPrompt = await this._sharePointAIService.GetTeamsSystemPrompt("", "", "", "");
+        var systemPrompt = await this._sharePointAIService.GetRoleSystemPrompt(roleId);
 
-        var tags = await this._sharePointAIService.GetTags();
-        var tag = tags.FirstOrDefault(y => y.Name == "Service");
+    //    var tags = await this._sharePointAIService.GetTags();
+    //    var tag = tags.FirstOrDefault(y => y.Name == "Service");
 
         var sources = messages.SelectMany(a => a.Attachments.Where(z => !string.IsNullOrEmpty(z.ContentUrl)).Select(z => z.ContentUrl))
                     .Where(y => this.supportedExtensions.Contains(Path.GetExtension(y).ToLowerInvariant()))
@@ -423,7 +423,7 @@ public class CorporAIteService
 
         try
         {
-            functions = await this._sharePointAIService.GetTagFunctions(tag.ItemId, null);
+ /*           functions = await this._sharePointAIService.GetTagFunctions(tag.ItemId, null);
 
             var functionRequests = await this._sharePointAIService.GetFunctionChatRequests(chatId);
             var functionResults = await this._sharePointAIService.GetFunctionResults(functionRequests.Select(a => a.ItemId));
@@ -431,7 +431,7 @@ public class CorporAIteService
             chatMesages.AddRange(functionRequests);
             chatMesages.AddRange(functionResults);
 
-            chatMesages = chatMesages.OrderBy(a => a.Created).ToList();
+            chatMesages = chatMesages.OrderBy(a => a.Created).ToList();*/
         }
         catch (Exception e)
         {
@@ -446,9 +446,9 @@ public class CorporAIteService
         };
     }
 
-    public async Task<Message> TeamsChatAsync(string chatId)
+    public async Task<Message> TeamsChatAsync(string chatId, int roleId)
     {
-        var chat = await GetTeamsChat(chatId);
+        var chat = await GetTeamsChat(chatId, roleId);
 
         if (!chat.Messages.Any())
         {

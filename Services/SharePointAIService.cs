@@ -525,6 +525,23 @@ public class SharePointAIService
 
         }
     }
+    public async Task<SystemPrompt> GetRoleSystemPrompt(int roleId)
+    {
+        using (var context = _sharePointService.GetContext(_baseSiteUrl + _vectorSiteUrl))
+        {
+            var role = await context.GetListItemFromList("AI Rollen", roleId);
+
+
+            return new SystemPrompt()
+            {
+                Prompt = role?["Rol"]?.ToString(),
+                ForceVectorGeneration = true,
+                Model = "gpt-4",
+                Temperature = (float)0.1
+            };
+
+        }
+    }
 
     public async Task<List<(byte[] ByteArray, DateTime LastModified)>> GetAiFilesForFile(string folderPath, string file)
     {
